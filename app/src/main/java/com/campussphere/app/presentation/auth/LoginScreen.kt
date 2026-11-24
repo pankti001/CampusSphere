@@ -1,6 +1,8 @@
 package com.campussphere.app.presentation.auth
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -20,9 +22,11 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun LoginScreen(
-    onLogin: (String, String) -> Unit,
+    isLoading: Boolean,
+    onLogin: (String, String, Boolean) -> Unit,
     onRegister: () -> Unit,
-    onForgotPassword: () -> Unit
+    onForgotPassword: () -> Unit,
+    onRegisterCollege: () -> Unit = {}, onAcceptInvitation: () -> Unit = {}
 ) {
 
     var email by remember { mutableStateOf("") }
@@ -36,6 +40,8 @@ fun LoginScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF8FAFC))
+            .verticalScroll(rememberScrollState())
+            .imePadding()
             .padding(horizontal = 25.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -173,7 +179,8 @@ fun LoginScreen(
             }
 
             TextButton(
-                onClick = onForgotPassword
+                onClick = onForgotPassword,
+                enabled = !isLoading
             ) {
                 Text(
                     text = "Forgot Password?",
@@ -188,7 +195,7 @@ fun LoginScreen(
         // Login Button
         Button(
             onClick = {
-                onLogin(email.trim(), password)
+                onLogin(email.trim(), password, rememberMe)
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -197,10 +204,10 @@ fun LoginScreen(
             colors = ButtonDefaults.buttonColors(
                 containerColor = primaryBlue
             ),
-            enabled = email.isNotBlank() && password.isNotBlank()
+            enabled = !isLoading && email.isNotBlank() && password.isNotBlank()
         ) {
             Text(
-                text = "Login",
+                text = if (isLoading) "Signing in..." else "Login",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -220,7 +227,8 @@ fun LoginScreen(
             )
 
             TextButton(
-                onClick = onRegister
+                onClick = onRegister,
+                enabled = !isLoading
             ) {
                 Text(
                     text = "Create Account",
@@ -228,6 +236,11 @@ fun LoginScreen(
                     fontWeight = FontWeight.Bold
                 )
             }
+        }
+
+        TextButton(onClick = onRegisterCollege, enabled = !isLoading) { Text("Register Your College") }
+        TextButton(onClick = onAcceptInvitation, enabled = !isLoading) {
+            Text("Accept College Admin invitation")
         }
 
         Spacer(modifier = Modifier.weight(1f))

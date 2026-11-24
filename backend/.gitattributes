@@ -1,0 +1,5 @@
+/mvnw text eol=lf
+*.cmd text eol=crlf
+
+# Keep reviewed migration SHA-256 bytes intact.
+*.sql -text

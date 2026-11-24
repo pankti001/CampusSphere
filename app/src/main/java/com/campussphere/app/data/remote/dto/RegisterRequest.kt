@@ -1,9 +1,11 @@
 package com.campussphere.app.data.remote.dto
 
+import com.google.gson.annotations.SerializedName
+
 data class RegisterRequest(
-    val fullName: String,
-    val email: String,
-    val phone: String,
-    val password: String,
-    val role: String
+    @SerializedName("fullName") val fullName: String,
+    @SerializedName("email") val email: String,
+    @SerializedName("phone") val phone: String,
+    @SerializedName("password") val password: String,
+    @SerializedName("role") val role: String
 )

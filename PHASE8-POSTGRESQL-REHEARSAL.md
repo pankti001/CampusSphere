@@ -1,0 +1,11 @@
+# Future Phase 8 PostgreSQL approval and login rehearsal
+
+Status: proposed, awaiting separate authorization.
+
+- [ ] Agree on an isolated database, expected history, synthetic college code, institutional email, reviewer fixture, retention and cleanup. Obtain explicit approval for the migration and fixture writes. Successful HTTP approval and login use separate transactions and can leave committed records and append-only audit events.
+- [ ] Pin the datasource and verify the database name, address, port, V1–V7 history, checksums, baseline counts and absence of normalized email collisions. Confirm fixture identities are unused. Make a separate custom-format backup, check its contents and record its SHA-256.
+- [ ] Apply only the reviewed V8 to the approved target. Verify its checksum, Hibernate validation, pending indexes, composite college/admin foreign key and audit protection. Disable further automatic migrations for the rehearsal.
+- [ ] From the public Android form submit one approved synthetic application. Verify a generic 202, one pending request, a 30-day lifetime and zero new users, colleges, role links or privileged audit events. Check hash presence by boolean only. Verify pending login is denied.
+- [ ] Use the approved reviewer fixture. Confirm an incomplete verification checklist cannot approve. Submit a complete synthetic verification record and confirm the decision once. Check one active college, one active verified user bound to it, exactly one COLLEGE_ADMIN grant, cleared request hash, reviewer and timestamps, and the three expected audit actions.
+- [ ] Sign in from the emulator using the applicant's original credentials privately. Check effective roles via /api/auth/status, the college-scoped department endpoint, denied platform access, and denied foreign-college access using a separately approved tenant fixture. Sign out and verify protected content is cleared.
+- [ ] With separately planned fixtures verify the expiry boundary, rejection, simultaneous decisions and rollback on audit failure. Reconcile counts and migration checksums. Preserve audit history and use only the approved cleanup procedure. Keep passwords, hashes, JWTs and private contact details out of evidence.

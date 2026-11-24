@@ -1,0 +1,18 @@
+# College registration rollout gates
+
+V8 is prepared only. Keep Flyway off during offline review. Before separately approving an isolated migration, confirm the target, V1–V7 history and backup readability. Inspect normalized-email collisions privately with a count; do not print addresses:
+
+    SELECT count(*) FROM (SELECT lower(btrim(email)) FROM public.users GROUP BY 1 HAVING count(*) > 1) conflicts;
+
+Stop on any collision. Verify the existing V7 audit action constraint name and append-only trigger before migration. V8 adds one table, pending-only reservations, a composite tenant/account foreign key and normalized account email uniqueness. V8 replaces only the audit action constraint. Review index-build locks against the size of users.
+
+After V8 validation, enable app.registration.expiry-enabled=true on at least one continuously running backend instance. The sweep runs every minute. It uses a conditional PostgreSQL update, which rechecks status after row-lock contention. Submission explicitly invokes expiry cleanup before reserving a code and email. Review GETs use a read-only repeatable-read snapshot and project overdue rows as EXPIRED; they never release reservations. Decisions check the deadline again under lock and before recording the decision. Time is supplied by PostgreSQL. The terminal UPDATE uses PostgreSQL statement_timestamp() for both eligibility and all decision evidence. A transaction may finish committing after its decision instant.
+
+Before exposing the public route, configure ingress throttling and body-size limits for POST /api/college-registration-requests before BCrypt processing. Disable request-body and SQL-parameter logging, use HTTPS, and restrict access to backups containing credential hashes. Do not store private correspondence. Reviewers must verify the institution, the representative's personal submission and authority, and institutional mailbox control via an independently obtained official contact.
+
+PostgreSQL rehearsal requires separate approval. Verify expiry at exactly 720 hours, normalized identity conflicts, simultaneous decisions on two connections, transaction rollback on audit failure, approved login and scope, and original invitation behavior. Do not open the public endpoint before the scheduler, ingress controls and database tests have been verified.
+## Isolated rehearsal runner design (future approval)
+
+Keep the existing Spring FlywayDatabaseGuard for dev and test. Use a separate operator-only runner with two fixed modes, baseline and V8, outside Spring startup. Construct its only datasource internally from the literal jdbc:postgresql://127.0.0.1:5432/campus_sphere_phase9_rehearsal. Accept credentials privately; reject URL overrides, service aliases, extra hosts, profiles, arbitrary targets and Flyway configuration inherited from the environment. Before constructing Flyway, verify current_database(), inet_server_addr(), inet_server_port(), PostgreSQL version and current_schema() on that datasource. Require the exact rehearsal database, loopback address, port 5432 and public schema. Any mismatch aborts.
+
+Baseline requires an empty public schema and exactly the reviewed V1–V7 inputs, targeting 7. The V8 mode requires the recorded successful V1–V7 checksums and exactly one approved pending file, V8. Pin the file digest, schema and migration locations in the runner. Disable clean, baseline-on-migrate and out-of-order execution. Validate before and after migration. Grant the runner's role access only to the rehearsal database where operationally possible. The runner is a design only. Its implementation, especially wrong-target refusal tests, precedes any separate rehearsal approval.

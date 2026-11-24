@@ -1,7 +1,20 @@
+import java.net.URI
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+val releaseApiUrl = providers.gradleProperty("campusSphereReleaseApiUrl")
+    .orElse("https://campussphere.invalid/")
+    .map { value ->
+        val uri = URI(value)
+        require(uri.scheme == "https" && uri.host != null && uri.userInfo == null &&
+                uri.query == null && uri.fragment == null && uri.path.endsWith("/")) {
+            "campusSphereReleaseApiUrl must be an HTTPS URL ending in /"
+        }
+        uri.toASCIIString()
+    }
 
 android {
     namespace = "com.campussphere.app"
@@ -20,7 +33,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080/\"")
+        }
         release {
+            buildConfigField("String", "API_BASE_URL", "\"${releaseApiUrl.get()}\"")
             optimization {
                 enable = true
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
@@ -33,6 +51,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

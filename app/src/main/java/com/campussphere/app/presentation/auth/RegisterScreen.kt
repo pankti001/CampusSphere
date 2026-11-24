@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun RegisterScreen(
+    isLoading: Boolean,
     onRegister: (
         String, String, String, String, String
     ) -> Unit,
@@ -228,6 +229,7 @@ fun RegisterScreen(
 
         // Create Account
         Button(
+            enabled = !isLoading,
             onClick = {
 
                 errorMessage = when {
@@ -269,7 +271,7 @@ fun RegisterScreen(
             )
         ) {
             Text(
-                text = "Create Account",
+                text = if (isLoading) "Creating account..." else "Create Account",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -288,7 +290,7 @@ fun RegisterScreen(
                 fontSize = 13.sp
             )
 
-            TextButton(onClick = onLogin) {
+            TextButton(onClick = onLogin, enabled = !isLoading) {
                 Text(
                     text = "Login",
                     color = primaryBlue,
