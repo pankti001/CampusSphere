@@ -32,7 +32,7 @@ import com.campussphere.app.data.repository.StudentRepository
 
 @Composable
 fun StudentScreen(repository: StudentRepository, authorization: () -> String, onAccessLost: (Int) -> Unit,
-                  onExit: () -> Unit, mode: StudentMode = StudentMode.ADMIN) {
+                  onExit: () -> Unit, mode: StudentMode = StudentMode.ADMIN, onAttendance: (() -> Unit)? = null, onMaterials: (() -> Unit)? = null) {
     val owner = remember(mode) {
         object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
     }
@@ -58,6 +58,13 @@ fun StudentScreen(repository: StudentRepository, authorization: () -> String, on
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 item { StudentHero(state.page, mode, state.busy, back) }
+                if (mode == StudentMode.STUDENT && onMaterials != null) item { WorkspaceItem { Button(onClick = onMaterials) { Text("Study materials") } } }
+                if (mode == StudentMode.STUDENT && onAttendance != null) item {
+                    WorkspaceItem {
+                        Button(onClick = onAttendance, enabled = !state.busy && state.error == null,
+                            modifier = Modifier.fillMaxWidth()) { Text("My attendance") }
+                    }
+                }
                 if (state.busy) item {
                     WorkspaceItem {
                         StudentPanel {

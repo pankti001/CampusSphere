@@ -204,6 +204,10 @@ public final class StudentE2eMigrationRunner {
         return snapshot;
     }
 
+    static List<String> reviewedMigrationNames() {
+        return MIGRATIONS.stream().map(Migration::file).toList();
+    }
+
     private static final class CheckedDataSource extends AbstractDataSource {
         private final char[] password;
         private int connections;

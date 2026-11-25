@@ -84,6 +84,7 @@ class AuthRepository(private val authApi: AuthApi) {
                 "INVITATION_INVALID" -> AuthError.INVITATION_INVALID
                 "REGISTRATION_NOT_ALLOWED" -> AuthError.REGISTRATION_NOT_ALLOWED
                 "ACCOUNT_ALREADY_EXISTS" -> AuthError.ACCOUNT_ALREADY_EXISTS
+                "FACULTY_COLLEGE_UNAVAILABLE" -> AuthError.FACULTY_COLLEGE_UNAVAILABLE
                 "FACULTY_REQUEST_CONFLICT" -> AuthError.FACULTY_REQUEST_CONFLICT
                 else -> AuthError.REQUEST_FAILED
             }
@@ -119,6 +120,7 @@ enum class AuthError(val message: String) {
     INVITATION_INVALID("This invitation cannot be accepted. Ask your administrator to check it."),
     REGISTRATION_NOT_ALLOWED("Choose Student or Faculty to register."),
     ACCOUNT_ALREADY_EXISTS("An account already uses that email or phone."),
+    FACULTY_COLLEGE_UNAVAILABLE("Enter an active college's registration code."),
     FACULTY_REQUEST_CONFLICT("Your Faculty request has changed. Refresh your account status."),
     NETWORK("Could not reach CampusSphere. Check your connection and try again."),
     INVALID_RESPONSE("CampusSphere returned an unexpected response."),

@@ -1,6 +1,6 @@
 param(
     [switch]$SkipBuild,
-    [ValidateSet('StudentEnrollment', 'FacultyManagement', 'DivisionsSubjects', 'AcademicPeriods')]
+    [ValidateSet('StudentEnrollment', 'FacultyOnboarding', 'FacultyManagement', 'DivisionsSubjects', 'AcademicPeriods')]
     [string]$Phase = 'StudentEnrollment'
 )
 
@@ -53,6 +53,13 @@ foreach ($apk in 'app/build/outputs/apk/debug/app-debug.apk',
 & $adb -s $serial shell input keyevent KEYCODE_WAKEUP
 & $adb -s $serial shell wm dismiss-keyguard
 $demo = @{
+    FacultyOnboarding = @{
+        Description = 'Faculty Onboarding'
+        Test = 'facultyOnboardingWalkthrough'
+        DeviceFolder = 'faculty-onboarding-demo'
+        ReportFolder = 'faculty-onboarding-demo-pixel6'
+        ScreenshotCount = 5
+    }
     StudentEnrollment = @{
         Description = 'Student Management and Enrollment'
         Test = 'studentEnrollmentWalkthrough'

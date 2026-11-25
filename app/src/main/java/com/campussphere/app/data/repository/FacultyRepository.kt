@@ -10,6 +10,11 @@ class FacultyRepository(
     private val periods: AcademicPeriodApi,
     private val offerings: AcademicOfferingApi
 ) {
+    suspend fun pending(auth: String) = faculty.pending(auth).catalogBody("faculty request")
+    suspend fun decide(auth: String, id: Long, approved: Boolean, employmentConfirmed: Boolean) =
+        faculty.decide(auth, id, FacultyAccessDecision(if (approved) "APPROVED" else "REJECTED",
+            employmentConfirmed)).catalogBody("faculty request", "The request has changed. Refresh the list.")
+
     suspend fun members(auth: String) = faculty.members(auth).catalogBody("faculty member")
     suspend fun profile(auth: String, id: Long) = faculty.profile(auth, id).catalogBody("faculty member")
     suspend fun assignments(auth: String, id: Long) = faculty.assignments(auth, id).catalogBody("assignment")

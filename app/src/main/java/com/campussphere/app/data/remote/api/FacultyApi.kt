@@ -14,6 +14,13 @@ private const val MEMBER = "$FACULTY/{facultyId}"
 private const val ASSIGNMENTS = "$MEMBER/assignments"
 
 interface FacultyApi {
+    @GET("api/college/faculty-requests")
+    suspend fun pending(@Header("Authorization") auth: String): Response<List<FacultyAccessRequest>>
+
+    @POST("api/college/faculty-requests/{requestId}/decision")
+    suspend fun decide(@Header("Authorization") auth: String, @Path("requestId") id: Long,
+        @Body input: FacultyAccessDecision): Response<FacultyAccessRequest>
+
     @GET(FACULTY)
     suspend fun members(@Header("Authorization") auth: String): Response<List<FacultyMember>>
 
@@ -39,6 +46,10 @@ interface FacultyApi {
     @GET("api/faculty/assignments")
     suspend fun myAssignments(@Header("Authorization") auth: String): Response<List<FacultyAssignment>>
 }
+
+data class FacultyAccessRequest(val id: Long, val applicantId: Long, val status: String, val name: String,
+                                val email: String)
+data class FacultyAccessDecision(val status: String, val employmentConfirmed: Boolean)
 
 data class FacultyMember(val id: Long, val name: String, val email: String, val departmentId: Long?,
                          val department: String?)

@@ -66,7 +66,7 @@ public class AuthService {
             throw e;
         }
         if (requestedRole.equals("FACULTY")) {
-            faculty.openInitialRequest(user.getId());
+            faculty.openInitialRequest(user.getId(), request.getCollegeCode());
         }
         return "Registration successful";
     }

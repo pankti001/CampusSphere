@@ -4,20 +4,23 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.campussphere.app.data.remote.api.FacultyAssignment
+import com.campussphere.app.data.remote.api.FacultyAccessRequest
 import com.campussphere.app.data.repository.FacultyRepository
 
 @Composable
 fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, onAccessLost: (Int) -> Unit,
-                  onExit: () -> Unit, dashboard: Boolean = false) {
+                  onExit: () -> Unit, dashboard: Boolean = false, onAttendance: (() -> Unit)? = null, onMaterials: (() -> Unit)? = null) {
     val owner = remember {
         object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
     }
@@ -28,6 +31,7 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
     val state by model.state.collectAsStateWithLifecycle()
     var query by remember(state.page) { mutableStateOf("") }
     var endConfirmation by remember { mutableStateOf<FacultyAssignment?>(null) }
+    var reviewing by remember { mutableStateOf<FacultyAccessRequest?>(null) }
     val back = {
         if (state.page == FacultyPage.DIRECTORY || dashboard) onExit() else model.cancel()
     }
@@ -43,6 +47,15 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
                 Text(if (dashboard) "Sign out" else "Back")
             }
             Text(state.page.title, style = MaterialTheme.typography.headlineMedium)
+            if (state.page == FacultyPage.DIRECTORY) {
+                OutlinedButton(onClick = model::pendingRequests, enabled = !state.busy) {
+                    Text("Review access requests")
+                }
+            }
+            if (state.page == FacultyPage.DASHBOARD && onMaterials != null) Button(onClick = onMaterials) { Text("Study materials") }
+            if (state.page == FacultyPage.DASHBOARD && onAttendance != null) {
+                Button(onClick = onAttendance, enabled = !state.busy && state.error == null) { Text("Class attendance") }
+            }
         }
         if (state.busy) item {
             LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -71,6 +84,13 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
                 }
                 items(visible, key = { it.id }) { member ->
                     FacultyCard(member.name, member.department ?: "Department unassigned", onClick = { model.profile(member.id) })
+                }
+            }
+            FacultyPage.REQUESTS -> if (!state.busy && state.error == null) {
+                item { OutlinedButton(onClick = model::refresh) { Text("Refresh") } }
+                if (state.requests.isEmpty()) item { Text("No pending Faculty access requests.") }
+                items(state.requests, key = { it.id }) { request ->
+                    FacultyCard(request.name, request.email) { reviewing = request }
                 }
             }
             FacultyPage.PROFILE -> state.member?.let { member ->
@@ -123,6 +143,38 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
                 TextButton(onClick = { endConfirmation = null; model.end(assignment) }) { Text("End assignment") }
             },
             dismissButton = { TextButton(onClick = { endConfirmation = null }) { Text("Cancel") } })
+    }
+
+    reviewing?.let { request ->
+        var confirmed by remember(request.id) { mutableStateOf(false) }
+        var rejecting by remember(request.id) { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { reviewing = null },
+            title = { Text(if (rejecting) "Reject access request?" else "Review Faculty access") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(request.name)
+                    Text(request.email)
+                    if (!rejecting) {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()
+                                .toggleable(value = confirmed, role = Role.Checkbox,
+                                    onValueChange = { confirmed = it })) {
+                            Checkbox(checked = confirmed, onCheckedChange = null)
+                            Text("I verified the applicant's institutional identity and employment.")
+                        }
+                        TextButton(onClick = { rejecting = true }) { Text("Reject request") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = (confirmed || rejecting) && !state.busy, onClick = {
+                    reviewing = null
+                    model.decide(request, approved = !rejecting, employmentConfirmed = confirmed)
+                }) { Text(if (rejecting) "Reject" else "Approve") }
+            },
+            dismissButton = { TextButton(onClick = { reviewing = null }) { Text("Cancel") } }
+        )
     }
 }
 

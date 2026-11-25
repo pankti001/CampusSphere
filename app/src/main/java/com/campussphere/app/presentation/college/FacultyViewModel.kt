@@ -2,6 +2,7 @@ package com.campussphere.app.presentation.college
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.campussphere.app.data.remote.api.FacultyAccessRequest
 import com.campussphere.app.data.remote.api.FacultyAssignment
 import com.campussphere.app.data.remote.api.FacultyAssignmentInput
 import com.campussphere.app.data.remote.api.FacultyMember
@@ -19,7 +20,7 @@ enum class FacultyPage(val title: String) {
     DIRECTORY("Faculty management"), PROFILE("Faculty profile"), DEPARTMENT("Choose department"),
     PROGRAM("Choose program"), YEAR("Choose academic year"), SEMESTER("Choose semester"),
     DIVISION("Choose division"), SUBJECT("Choose subject"), REVIEW("Review assignment"),
-    DASHBOARD("Faculty dashboard")
+    DASHBOARD("Faculty dashboard"), REQUESTS("Faculty access requests")
 }
 
 data class AssignmentSelection(
@@ -41,6 +42,7 @@ data class FacultyState(
     val page: FacultyPage,
     val busy: Boolean = true,
     val members: List<FacultyMember> = emptyList(),
+    val requests: List<FacultyAccessRequest> = emptyList(),
     val member: FacultyMember? = null,
     val assignments: List<FacultyAssignment> = emptyList(),
     val options: List<AcademicCatalogItem> = emptyList(),
@@ -67,6 +69,22 @@ class FacultyViewModel(
     fun directory() {
         memberId = null
         load(FacultyState(FacultyPage.DIRECTORY)) { draft, auth -> draft.copy(members = repository.members(auth)) }
+    }
+
+    fun pendingRequests() {
+        load(FacultyState(FacultyPage.REQUESTS)) { draft, auth ->
+            draft.copy(requests = repository.pending(auth))
+        }
+    }
+
+    fun decide(request: FacultyAccessRequest, approved: Boolean, employmentConfirmed: Boolean) {
+        val current = mutable.value
+        if (current.page != FacultyPage.REQUESTS || request !in current.requests) return
+        mutate { auth ->
+            repository.decide(auth, request.id, approved, employmentConfirmed)
+            current.copy(requests = current.requests.filterNot { it.id == request.id },
+                success = if (approved) "Faculty access approved." else "Faculty request rejected.")
+        }
     }
 
     fun profile(id: Long) {
@@ -140,7 +158,13 @@ class FacultyViewModel(
     }
 
     fun retry() { retryAction?.invoke() }
-    fun refresh() { if (dashboard) loadDashboard() else memberId?.let(::profile) ?: directory() }
+    fun refresh() {
+        when {
+            dashboard -> loadDashboard()
+            mutable.value.page == FacultyPage.REQUESTS -> pendingRequests()
+            else -> memberId?.let(::profile) ?: directory()
+        }
+    }
 
     private fun loadDashboard() {
         load(FacultyState(FacultyPage.DASHBOARD)) { draft, auth -> draft.copy(assignments = repository.mine(auth)) }
@@ -193,6 +217,7 @@ class FacultyViewModel(
                     onAccessLost(status ?: 403)
                 } else {
                     val message = when {
+                        status == 400 && pending.page == FacultyPage.REQUESTS -> "Check the employment confirmation and try again."
                         status == 400 -> "Choose a matching department, program, year, semester, division, and subject."
                         status != null -> failure.message
                         else -> "CampusSphere could not complete the request. Refresh to check the current state."

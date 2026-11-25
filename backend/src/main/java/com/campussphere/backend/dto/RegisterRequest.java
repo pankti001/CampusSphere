@@ -28,6 +28,17 @@ public class RegisterRequest {
     @NotBlank(message = "Role is required")
     private String role;
 
+    @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9_-]{0,29}")
+    private String collegeCode;
+
+    public String getCollegeCode() {
+        return collegeCode;
+    }
+
+    public void setCollegeCode(String collegeCode) {
+        this.collegeCode = collegeCode;
+    }
+
     public String getFullName() {
         return fullName;
     }

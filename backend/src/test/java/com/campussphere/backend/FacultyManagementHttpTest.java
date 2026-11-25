@@ -4,11 +4,15 @@ import java.util.List;
 import java.util.Set;
 
 import com.campussphere.backend.controller.FacultyManagementController;
+import com.campussphere.backend.controller.CollegeFacultyAccessController;
 import com.campussphere.backend.security.*;
 import com.campussphere.backend.security.AccountAccessPolicy.Account;
 import com.campussphere.backend.security.AccountAccessPolicy.CollegeScope;
 import com.campussphere.backend.service.FacultyManagementService;
 import com.campussphere.backend.service.FacultyManagementService.*;
+import com.campussphere.backend.service.FacultyAccessService;
+import com.campussphere.backend.service.FacultyAccessService.CollegeRequest;
+import com.campussphere.backend.service.FacultyAccessService.Status;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -23,13 +27,15 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = FacultyManagementController.class,
+@WebMvcTest(controllers = {FacultyManagementController.class, CollegeFacultyAccessController.class},
         properties = "logging.level.org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration=OFF")
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiSecurityErrors.class, AccountAccessPolicy.class})
 class FacultyManagementHttpTest {
     private static final String BASE = "/api/college/faculty";
     private static final String MINE = "/api/faculty/assignments";
     private static final String ASSIGN = BASE + "/12/assignments";
+    private static final String REQUESTS = "/api/college/faculty-requests";
+    private static final String DECISION = REQUESTS + "/15/decision";
     private static final String INPUT = """
             {"departmentId":2,"programId":3,"academicYearId":4,"semesterId":5,"divisionId":6,"subjectId":7}
             """;
@@ -37,6 +43,7 @@ class FacultyManagementHttpTest {
     private final Account member = account(12L, "FACULTY");
     @Autowired MockMvc mvc;
     @MockitoBean FacultyManagementService service;
+    @MockitoBean FacultyAccessService access;
     @MockitoBean JwtService jwt;
     @MockitoBean CustomUserDetailsService users;
 
@@ -83,6 +90,32 @@ class FacultyManagementHttpTest {
         mvc.perform(get(MINE + "?facultyId=30&collegeId=200").with(as(member)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(99));
         verify(service).dashboard(member);
+    }
+
+    @Test void protectsFacultyRequestQueueAndDecisions() throws Exception {
+        mvc.perform(get(REQUESTS)).andExpect(status().isUnauthorized());
+        for (String role : List.of("SUPER_ADMIN", "ADMIN", "STUDENT", "FACULTY")) {
+            mvc.perform(get(REQUESTS).with(as(account(12L, role)))).andExpect(status().isForbidden());
+            mvc.perform(post(DECISION).with(as(account(12L, role)))).andExpect(status().isForbidden());
+        }
+        mvc.perform(post(DECISION).with(as(admin)).contentType("application/json")
+                .content("{\"status\":\"APPROVED\",\"employmentConfirmed\":true,\"collegeId\":200}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(access);
+    }
+
+    @Test void passesTheAuthenticatedReviewerAndConfirmationToFacultyAccess() throws Exception {
+        when(access.pending(admin)).thenReturn(List.of(
+                new CollegeRequest(15, 12, Status.PENDING, "Faculty Example", "faculty@example.invalid")));
+        when(access.decideForCollege(admin, 15L, Status.APPROVED, true)).thenReturn(
+                new CollegeRequest(15, 12, Status.APPROVED, "Faculty Example", "faculty@example.invalid"));
+        mvc.perform(get(REQUESTS + "?collegeId=999").with(as(admin)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(15));
+        mvc.perform(post(DECISION).with(as(admin)).contentType("application/json")
+                .content("{\"status\":\"APPROVED\",\"employmentConfirmed\":true}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("APPROVED"));
+        verify(access).pending(admin);
+        verify(access).decideForCollege(admin, 15L, Status.APPROVED, true);
     }
 
     private static Account account(long id, String role) {

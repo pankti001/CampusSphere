@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.sp
 fun RegisterScreen(
     isLoading: Boolean,
     onRegister: (
-        String, String, String, String, String
+        String, String, String, String, String, String?
     ) -> Unit,
     onLogin: () -> Unit
 ) {
@@ -35,6 +35,7 @@ fun RegisterScreen(
     var confirmPassword by remember { mutableStateOf("") }
 
     var selectedRole by remember { mutableStateOf("STUDENT") }
+    var collegeCode by remember { mutableStateOf("") }
 
     var passwordVisible by remember { mutableStateOf(false) }
     var confirmVisible by remember { mutableStateOf(false) }
@@ -216,6 +217,18 @@ fun RegisterScreen(
 
         Spacer(modifier = Modifier.height(15.dp))
 
+        if (selectedRole == "FACULTY") {
+            OutlinedTextField(
+                value = collegeCode,
+                onValueChange = { collegeCode = it },
+                label = { Text("College code") },
+                supportingText = { Text("Enter the code provided by your college.") },
+                enabled = !isLoading,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
         // Error Message
         if (errorMessage.isNotEmpty()) {
             Text(
@@ -249,6 +262,10 @@ fun RegisterScreen(
                     confirmPassword != password ->
                         "Passwords do not match"
 
+                    selectedRole == "FACULTY" &&
+                        !collegeCode.trim().matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,29}")) ->
+                        "Enter a valid college code"
+
                     else -> ""
                 }
 
@@ -258,7 +275,8 @@ fun RegisterScreen(
                         email.trim(),
                         phone,
                         password,
-                        selectedRole
+                        selectedRole,
+                        collegeCode.trim().takeIf { selectedRole == "FACULTY" }
                     )
                 }
             },

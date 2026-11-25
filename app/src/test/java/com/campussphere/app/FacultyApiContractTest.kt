@@ -20,6 +20,30 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 class FacultyApiContractTest {
+    @Test fun facultyApprovalUsesTheAuthenticatedSessionAndNoClientCollegeId() = runBlocking {
+        val repo = repository { request ->
+            assertEquals("Bearer test", request.header("Authorization"))
+            assertNull(request.url.query)
+            val record = """{"id":15,"applicantId":12,"name":"Faculty Example","email":"faculty@example.invalid","status":"PENDING"}"""
+            if (request.method == "GET") {
+                assertEquals("/api/college/faculty-requests", request.url.encodedPath)
+                200 to "[$record]"
+            } else {
+                assertEquals("POST", request.method)
+                assertEquals("/api/college/faculty-requests/15/decision", request.url.encodedPath)
+                val body = requireNotNull(request.body)
+                val payload = JsonParser.parseString(Buffer().apply { body.writeTo(this) }.readUtf8()).asJsonObject
+                assertEquals(setOf("status", "employmentConfirmed"), payload.keySet())
+                assertEquals("APPROVED", payload["status"].asString)
+                assertTrue(payload["employmentConfirmed"].asBoolean)
+                200 to record.replace("PENDING", "APPROVED")
+            }
+        }
+        val pending = repo.pending("Bearer test").single()
+        assertEquals(12L, pending.applicantId)
+        assertEquals("APPROVED", repo.decide("Bearer test", pending.id, true, true).status)
+    }
+
     @Test fun keepsIdentityInTheSessionAndSendsOnlyAcademicFields() = runBlocking {
         val calls = mutableListOf<Pair<String, String>>()
         val repo = repository { request ->

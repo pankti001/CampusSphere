@@ -3,6 +3,7 @@ package com.campussphere.backend.security;
 import org.springframework.http.HttpStatus;
 
 public enum ApiError {
+    MATERIAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Material or assignment unavailable."),
     INVALID_AUTHENTICATION(HttpStatus.UNAUTHORIZED, "Authentication is required or invalid."),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "You do not have permission to perform this action."),
     VERIFICATION_REQUIRED(HttpStatus.FORBIDDEN, "Account verification is required."),
@@ -46,7 +47,15 @@ public enum ApiError {
     FACULTY_ASSIGNMENT_CONFLICT(HttpStatus.CONFLICT, "This faculty member already has that active subject assignment in this division."),
     FACULTY_ASSIGNMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "The active assignment was not found."),
     FACULTY_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "The Faculty request was not found."),
-    FACULTY_REQUEST_CONFLICT(HttpStatus.CONFLICT, "The Faculty request cannot be changed in its current state.");
+    FACULTY_COLLEGE_UNAVAILABLE(HttpStatus.BAD_REQUEST, "Enter an active college's registration code."),
+    FACULTY_EMPLOYMENT_UNCONFIRMED(HttpStatus.BAD_REQUEST, "Verify the applicant's employment before approval."),
+    FACULTY_REQUEST_CONFLICT(HttpStatus.CONFLICT, "The Faculty request cannot be changed in its current state."),
+    ATTENDANCE_NOT_FOUND(HttpStatus.NOT_FOUND, "The attendance session or record was not found."),
+    ATTENDANCE_SESSION_CONFLICT(HttpStatus.CONFLICT, "A session already exists for that lecture."),
+    ATTENDANCE_STATE_CONFLICT(HttpStatus.CONFLICT, "The session changed or can no longer be edited. Refresh before continuing."),
+    ATTENDANCE_ROSTER_INVALID(HttpStatus.BAD_REQUEST, "Use only the session roster and mark every Student before submitting."),
+    ATTENDANCE_SESSION_INVALID(HttpStatus.BAD_REQUEST, "Enter a valid lecture date, number and time for your assignment."),
+    ATTENDANCE_POLICY_INVALID(HttpStatus.BAD_REQUEST, "Use valid thresholds and correction hours.");
 
     private final HttpStatus status;
     private final String message;

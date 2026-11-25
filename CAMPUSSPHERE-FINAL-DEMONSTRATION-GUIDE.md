@@ -30,6 +30,14 @@ Use the regular debug app for a live walkthrough only after the target backend, 
 4. Select **Biology program → Academic Year 2026 → First semester → Division A**, review, and save. Attempt a second current enrollment to show the duplicate guard.
 5. Open the synthetic Student dashboard to see the current college, department, program, year, semester and division. End the enrollment from the admin profile. Show it in history and reopen the student dashboard to confirm the empty state.
 
+## Faculty onboarding review walkthrough
+
+Run `.\Start-CampusSphereDemo.ps1 -Phase FacultyOnboarding` for the Pixel 6 review walkthrough. It uses labeled synthetic Retrofit responses for the pending queue, employment confirmation, approval, rejection and the empty queue. The launcher exports the captures to `app/build/reports/faculty-onboarding-demo-pixel6`.
+
+For a live rehearsal, first approve a dedicated PostgreSQL target with verified V1–V13, the proposed V14 migration, and two synthetic colleges and accounts. Use the regular debug app pointed at that backend. Register a Faculty applicant with the first college's code and confirm pending access does not open the Faculty dashboard. Verify that the second College Admin and the legacy Admin cannot decide that request. Approve with the first College Admin after verifying institutional identity and employment. Reload the applicant session and verify the only granted role is Faculty, with access limited to the approved college and assignments. Also exercise rejection, reapplication to the same college, and competing decisions. Keep the rehearsal and its accounts separate from development.
+
+The [Faculty PostgreSQL runbook](backend/docs/faculty-onboarding-rehearsal.md) specifies the isolated target, migration preflight, rollback-only HTTP test, and separate live emulator checks.
+
 ## Faculty Management and Subject Assignment presenter walkthrough
 
 1. Open **Manage faculty** as a College Admin. Show loading, the simulated outage, **Retry**, and the empty directory. Refresh to see the synthetic faculty member and use search.

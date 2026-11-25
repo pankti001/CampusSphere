@@ -44,6 +44,13 @@ import com.campussphere.app.data.remote.api.StudentApi
 import com.campussphere.app.data.repository.StudentRepository
 import com.campussphere.app.data.remote.api.FacultyApi
 import com.campussphere.app.data.repository.FacultyRepository
+import com.campussphere.app.presentation.materials.MaterialScreen
+import com.campussphere.app.data.remote.api.MaterialApi
+import com.campussphere.app.data.repository.MaterialRepository
+import com.campussphere.app.data.remote.api.AttendanceApi
+import com.campussphere.app.data.repository.AttendanceRepository
+import com.campussphere.app.presentation.attendance.AttendanceMode
+import com.campussphere.app.presentation.attendance.AttendanceScreen
 import com.campussphere.app.data.remote.api.ProgramApi
 import com.campussphere.app.data.repository.DashboardRole
 import com.campussphere.app.data.repository.PlatformRepository
@@ -89,6 +96,8 @@ class MainActivity : ComponentActivity() {
             departmentRepository, programApi, periodApi, offeringApi)
         val studentRepository = StudentRepository(RetrofitClient.createService(StudentApi::class.java),
             departmentRepository, programApi, periodApi, offeringApi)
+        val materials = MaterialRepository(RetrofitClient.createService(MaterialApi::class.java), RetrofitClient.createService(AttendanceApi::class.java))
+        val attendanceRepository = AttendanceRepository(RetrofitClient.createService(AttendanceApi::class.java))
         val platformRepository = PlatformRepository(RetrofitClient.createService(PlatformApi::class.java))
         val registrationApi = RetrofitClient.createService(com.campussphere.app.data.remote.api.CollegeRegistrationApi::class.java)
         val factory = AuthViewModelFactory(repository, SessionStore(applicationContext, BuildConfig.API_BASE_URL))
@@ -151,8 +160,8 @@ class MainActivity : ComponentActivity() {
                     )
                     AuthRoute.REGISTER -> RegisterScreen(
                         isLoading = state.isLoading,
-                        onRegister = { name, email, phone, password, role ->
-                            auth.register(RegisterRequest(name.trim(), email.trim(), phone.trim(), password, role))
+                        onRegister = { name, email, phone, password, role, collegeCode ->
+                            auth.register(RegisterRequest(name.trim(), email.trim(), phone.trim(), password, role, collegeCode))
                         },
                         onLogin = auth::showLogin
                     )
@@ -172,7 +181,12 @@ class MainActivity : ComponentActivity() {
                     } else if (state.account?.dashboardRole == DashboardRole.COLLEGE_ADMIN) {
                         var academicSection by remember { mutableStateOf<AcademicSection?>(null) }
                         val section = academicSection
-                        if (section == AcademicSection.FACULTY) {
+                        if (section == AcademicSection.MATERIALS) MaterialScreen(materials,"college",auth::departmentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
+                        else if (section == AcademicSection.ATTENDANCE) {
+                            AttendanceScreen(attendanceRepository, auth::departmentAuthorization, { status ->
+                                if (status == 401) auth.expirePlatformSession() else auth.refresh()
+                            }, AttendanceMode.ADMIN) { academicSection = null }
+                        } else if (section == AcademicSection.FACULTY) {
                             FacultyScreen(facultyRepository, auth::departmentAuthorization, { status ->
                                 if (status == 401) auth.expirePlatformSession() else auth.refresh()
                             }, { academicSection = null; auth.refresh() })
@@ -192,11 +206,18 @@ class MainActivity : ComponentActivity() {
                             onAcademicYears = { academicSection = AcademicSection.YEARS },
                             onDepartments = { academicSection = AcademicSection.DEPARTMENTS },
                             onFaculty = { academicSection = AcademicSection.FACULTY },
-                            onStudents = { academicSection = AcademicSection.STUDENTS })
+                            onStudents = { academicSection = AcademicSection.STUDENTS },
+                            onMaterials = { academicSection = AcademicSection.MATERIALS }, onAttendance = { academicSection = AcademicSection.ATTENDANCE })
                     } else if (state.account?.dashboardRole == DashboardRole.FACULTY) {
-                        FacultyScreen(facultyRepository, auth::facultyAuthorization, { status ->
+                        var showAttendance by remember { mutableStateOf(false) }
+                        var showMaterials by remember { mutableStateOf(false) }
+                        if (showMaterials) MaterialScreen(materials,"faculty",auth::facultyAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
+                        else if (showAttendance) AttendanceScreen(attendanceRepository, auth::facultyAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
-                        }, auth::logout, dashboard = true)
+                        }, AttendanceMode.FACULTY) { showAttendance = false }
+                        else FacultyScreen(facultyRepository, auth::facultyAuthorization, { status ->
+                            if (status == 401) auth.expirePlatformSession() else auth.refresh()
+                        }, auth::logout, dashboard = true, onMaterials = { showMaterials = true }, onAttendance = { showAttendance = true })
                     } else if (state.account?.studentAffiliationEligible == true) {
                         var showRequest by remember { mutableStateOf(false) }
                         if (showRequest) StudentScreen(studentRepository, auth::studentAffiliationAuthorization, { status ->
@@ -205,9 +226,15 @@ class MainActivity : ComponentActivity() {
                         else SessionScreen(state, auth::refresh, auth::reapplyForFaculty, auth::logout,
                             onStudentAffiliation = { showRequest = true })
                     } else if (state.account?.dashboardRole == DashboardRole.STUDENT) {
-                        StudentScreen(studentRepository, auth::studentAuthorization, { status ->
+                        var showAttendance by remember { mutableStateOf(false) }
+                        var showMaterials by remember { mutableStateOf(false) }
+                        if (showMaterials) MaterialScreen(materials,"student",auth::studentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
+                        else if (showAttendance) AttendanceScreen(attendanceRepository, auth::studentAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
-                        }, auth::logout, StudentMode.STUDENT)
+                        }, AttendanceMode.STUDENT) { showAttendance = false }
+                        else StudentScreen(studentRepository, auth::studentAuthorization, { status ->
+                            if (status == 401) auth.expirePlatformSession() else auth.refresh()
+                        }, auth::logout, StudentMode.STUDENT, onMaterials = { showMaterials = true }, onAttendance = { showAttendance = true })
                     } else SessionScreen(
                         state = state, onRefresh = auth::refresh, onReapply = auth::reapplyForFaculty, onLogout = auth::logout
                     )
@@ -226,7 +253,7 @@ class MainActivity : ComponentActivity() {
         !BuildConfig.DEBUG || Build.VERSION.SDK_INT < 37 ||
             checkSelfPermission(LOCAL_NETWORK_PERMISSION) == PackageManager.PERMISSION_GRANTED
 
-    private enum class AcademicSection { YEARS, DEPARTMENTS, FACULTY, STUDENTS }
+    private enum class AcademicSection { YEARS, DEPARTMENTS, FACULTY, STUDENTS, ATTENDANCE, MATERIALS }
 
     private companion object {
         const val LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"

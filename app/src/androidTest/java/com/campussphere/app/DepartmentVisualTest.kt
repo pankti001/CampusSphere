@@ -582,6 +582,169 @@ class DepartmentVisualTest {
         }
     }
 
+    @Test fun facultyLiveOnboarding() {
+        val credentialsFile = File(instrumentation.targetContext.filesDir, "faculty-live-credentials.json")
+        val credentials = try { JsonParser.parseString(credentialsFile.readText()).asJsonObject }
+        finally { check(credentialsFile.delete()) { "Private fixture input cleanup failed" } }
+        val auth = RetrofitClient.createService(AuthApi::class.java)
+        val api = RetrofitClient.createService(FacultyApi::class.java)
+        val repo = FacultyRepository(api, DepartmentRepository(auth), RetrofitClient.createService(ProgramApi::class.java),
+            RetrofitClient.createService(AcademicPeriodApi::class.java),
+            RetrofitClient.createService(AcademicOfferingApi::class.java))
+        fun login(key: String, email: String, role: DashboardRole?): String = runBlocking {
+            val payload = liveBody(auth.login(LoginRequest(email, credentials.get(key).asString)), "$key login")
+            val account = AuthRepository(auth).account(payload.token).getOrThrow()
+            check(account.dashboardRole == role) { "$key has an unexpected effective role" }
+            if (role == null) check(account.facultyStatus == "PENDING")
+            "Bearer " + payload.token
+        }
+        val alpha = login("alphaAdmin", "alpha-admin@example.invalid", DashboardRole.COLLEGE_ADMIN)
+        val beta = login("betaAdmin", "beta-admin@example.invalid", DashboardRole.COLLEGE_ADMIN)
+        val pending = login("alphaFaculty", "alpha-faculty@example.invalid", null)
+        runBlocking { liveCheck("pending Faculty assignment denial", 403, api.myAssignments(pending)) }
+        val applicant = runBlocking {
+            val alphaQueue = liveBody(api.pending(alpha), "Alpha College Admin queue")
+            val betaQueue = liveBody(api.pending(beta), "Beta College Admin queue")
+            check(alphaQueue.single().email == "alpha-faculty@example.invalid")
+            check(betaQueue.single().email == "beta-faculty@example.invalid")
+            val request = alphaQueue.single()
+            // An unconfirmed decision cannot approve anyone even if an authorization regression is present.
+            liveCheck("Beta cross-college decision denial", 404, api.decide(beta, request.id,
+                com.campussphere.app.data.remote.api.FacultyAccessDecision("APPROVED", false)))
+            request
+        }
+        val folder = "faculty-onboarding-live-postgresql"
+        fun shot(name: String) = screenshot(name, folder)
+        fun showFaculty(token: String, dashboard: Boolean, activity: ComponentActivity) {
+            activity.setContent {
+                CampusSphereTheme {
+                    Column(Modifier.safeDrawingPadding()) {
+                        Text("Live PostgreSQL • Synthetic accounts")
+                        FacultyScreen(repo, { token }, { error("Unexpected Faculty access failure: $it") }, {},
+                            dashboard = dashboard)
+                    }
+                }
+            }
+        }
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { showFaculty(beta, false, it) }
+            click("Review access requests")
+            node("Synthetic Beta Faculty Applicant")
+            check(tree(instrumentation.uiAutomation.rootInActiveWindow).none {
+                it.text?.toString()?.contains("Synthetic Alpha Faculty Applicant") == true
+            })
+            shot("01-beta-isolated-queue")
+        }
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { showFaculty(alpha, false, it) }
+            click("Review access requests")
+            click("Synthetic Alpha Faculty Applicant")
+            node("Review Faculty access")
+            node(applicant.email)
+            shot("02-alpha-review")
+            click("I verified the applicant's institutional identity and employment.")
+            click("Approve")
+            node("Faculty access approved.", 12_000)
+            shot("03-alpha-approved")
+            click("Back")
+            click("Synthetic Alpha Faculty Applicant")
+            click("Set department")
+            click("Alpha Sciences")
+            node("Department saved.", 12_000)
+            shot("04-alpha-department")
+            click("Add assignment")
+            listOf("Alpha Science Program", "Academic Year 2026-2027", "First Semester",
+                "Alpha Division", "Alpha Laboratory").forEach { click(it) }
+            node("Review assignment")
+            shot("05-alpha-assignment-review")
+            click("Save assignment")
+            node("Assignment added.", 12_000)
+            shot("06-alpha-assignment-saved")
+        }
+        runBlocking {
+            liveCheck("Beta Alpha profile denial", 404, api.profile(beta, applicant.applicantId))
+            check(liveBody(api.pending(beta), "Beta queue still pending").single().status == "PENDING")
+        }
+        val faculty = login("alphaFaculty", "alpha-faculty@example.invalid", DashboardRole.FACULTY)
+        runBlocking {
+            val assignment = liveBody(api.myAssignments(faculty), "Alpha Faculty assignment scope").single()
+            check(assignment.subject == "Alpha Laboratory" && assignment.division == "Alpha Division")
+        }
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { showFaculty(faculty, true, it) }
+            node("Faculty dashboard")
+            node("Alpha Laboratory")
+            shot("07-alpha-faculty-dashboard")
+        }
+    }
+
+    @Test fun facultyOnboardingWalkthrough() {
+        val queue = "/api/college/faculty-requests"
+        val pending = mutableListOf(15L, 16L)
+        fun record(id: Long, status: String) =
+            """{"id":$id,"applicantId":$id,"name":"Faculty Applicant $id","email":"faculty$id@example.invalid","status":"$status"}"""
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            check(request.header("Authorization") == "Bearer synthetic-admin")
+            check(request.url.query == null)
+            val path = request.url.encodedPath
+            val json = when {
+                request.method == "GET" && path == "/api/college/faculty" -> "[]"
+                request.method == "GET" && path == queue ->
+                    pending.joinToString(prefix = "[", postfix = "]") { record(it, "PENDING") }
+                request.method == "POST" && path.startsWith("$queue/") -> {
+                    val id = path.substringAfter("$queue/").substringBefore("/").toLong()
+                    val body = requireNotNull(request.body)
+                    val input = JsonParser.parseString(Buffer().also { body.writeTo(it) }.readUtf8()).asJsonObject
+                    check(input.keySet() == setOf("status", "employmentConfirmed"))
+                    val status = input["status"].asString
+                    check(status == if (id == 15L) "APPROVED" else "REJECTED")
+                    check(input["employmentConfirmed"].asBoolean == (id == 15L))
+                    check(pending.remove(id))
+                    record(id, status)
+                }
+                else -> error("Unexpected synthetic request: ${request.method} $path")
+            }
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200)
+                .message("Synthetic response").body(json.toResponseBody()).build()
+        }.build()
+        val retrofit = Retrofit.Builder().baseUrl("https://example.invalid/").client(client)
+            .addConverterFactory(GsonConverterFactory.create()).build()
+        val repo = FacultyRepository(retrofit.create(FacultyApi::class.java),
+            DepartmentRepository(retrofit.create(AuthApi::class.java)), retrofit.create(ProgramApi::class.java),
+            retrofit.create(AcademicPeriodApi::class.java), retrofit.create(AcademicOfferingApi::class.java))
+        val folder = "faculty-onboarding-demo"
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    CampusSphereTheme {
+                        Column(Modifier.safeDrawingPadding()) {
+                            Text("Visual test • synthetic data")
+                            FacultyScreen(repo, { "Bearer synthetic-admin" }, { error("Unexpected denial: $it") }, {})
+                        }
+                    }
+                }
+            }
+            click("Review access requests")
+            node("Faculty Applicant 15")
+            screenshot("01-pending-queue", folder)
+            click("Faculty Applicant 15")
+            node("Review Faculty access")
+            screenshot("02-verify-employment", folder)
+            click("I verified the applicant's institutional identity and employment.")
+            click("Approve")
+            node("Faculty access approved.")
+            screenshot("03-approval", folder)
+            click("Faculty Applicant 16")
+            click("Reject request")
+            node("Reject access request?")
+            screenshot("04-rejection-confirmation", folder)
+            click("Reject")
+            node("No pending Faculty access requests.")
+            screenshot("05-empty-queue", folder)
+        }
+    }
+
     @Test fun facultyManagementWalkthrough() {
         val base = "/api/college/faculty"
         val assignments = "$base/12/assignments"
