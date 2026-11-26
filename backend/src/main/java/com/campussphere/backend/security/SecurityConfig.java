@@ -59,6 +59,8 @@ public class SecurityConfig {
                                 "/api/college/faculty-requests/*/decision").hasRole("COLLEGE_ADMIN")
                         .requestMatchers("/api/college/materials", "/api/college/materials/**", "/api/college/attendance/**").hasRole("COLLEGE_ADMIN")
                         .requestMatchers("/api/college/announcements", "/api/college/announcements/**").hasRole("COLLEGE_ADMIN")
+                        .requestMatchers("/api/college/timetables", "/api/college/timetables/**",
+                                "/api/college/classrooms", "/api/college/classrooms/**").hasRole("COLLEGE_ADMIN")
                         .requestMatchers("/api/college/programs/*/academic-years/*/divisions",
                                 "/api/college/programs/*/academic-years/*/divisions/*",
                                 "/api/college/programs/*/semesters/*/subjects",

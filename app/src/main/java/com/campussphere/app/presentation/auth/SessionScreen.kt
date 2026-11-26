@@ -25,7 +25,7 @@ fun SessionScreen(state: AuthUiState, onRefresh: () -> Unit, onReapply: () -> Un
                   onStudents: (() -> Unit)? = null,
                   onStudentAffiliation: (() -> Unit)? = null,
                   onAttendance: (() -> Unit)? = null, onMaterials: (() -> Unit)? = null,
-                  onAnnouncements: (() -> Unit)? = null) {
+                  onAnnouncements: (() -> Unit)? = null, onTimetable: (() -> Unit)? = null) {
     val account = state.account
     val role = account?.dashboardRole
     val title = role?.title ?: when {
@@ -72,6 +72,7 @@ fun SessionScreen(state: AuthUiState, onRefresh: () -> Unit, onReapply: () -> Un
                 Button(onClick = open, enabled = !state.isLoading) { Text("Request college affiliation") }
             }
             onAnnouncements?.let { Button(onClick = it, enabled = !state.isLoading) { Text("Announcements") } }
+            onTimetable?.let { Button(onClick = it, enabled = !state.isLoading) { Text("Timetables") } }
             onMaterials?.let { Button(onClick = it, enabled = !state.isLoading) { Text("Study materials") } }
             onAttendance?.let { open ->
                 Button(onClick = open, enabled = !state.isLoading) { Text("Attendance reports") }

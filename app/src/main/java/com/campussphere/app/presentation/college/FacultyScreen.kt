@@ -21,7 +21,7 @@ import com.campussphere.app.data.repository.FacultyRepository
 @Composable
 fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, onAccessLost: (Int) -> Unit,
                   onExit: () -> Unit, dashboard: Boolean = false, onAttendance: (() -> Unit)? = null, onMaterials: (() -> Unit)? = null,
-                  onAnnouncements: (() -> Unit)? = null) {
+                  onAnnouncements: (() -> Unit)? = null, onTimetable: (() -> Unit)? = null) {
     val owner = remember {
         object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
     }
@@ -53,6 +53,7 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
                     Text("Review access requests")
                 }
             }
+            if (state.page == FacultyPage.DASHBOARD && onTimetable != null) Button(onClick = onTimetable) { Text("My timetable") }
             if (state.page == FacultyPage.DASHBOARD && onAnnouncements != null) Button(onClick = onAnnouncements) { Text("Announcements") }
             if (state.page == FacultyPage.DASHBOARD && onMaterials != null) Button(onClick = onMaterials) { Text("Study materials") }
             if (state.page == FacultyPage.DASHBOARD && onAttendance != null) {
