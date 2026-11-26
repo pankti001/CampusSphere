@@ -7,6 +7,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -24,6 +28,16 @@ class ApiExceptionHandler {
             MethodArgumentTypeMismatchException.class})
     ResponseEntity<ApiError.Body> invalidRequest() {
         return response(ApiError.INVALID_REQUEST);
+    }
+
+    @ExceptionHandler({MissingServletRequestParameterException.class, MissingServletRequestPartException.class})
+    ResponseEntity<ApiError.Body> missingInput() {
+        return response(ApiError.INVALID_REQUEST);
+    }
+
+    @ExceptionHandler({MaxUploadSizeExceededException.class, MultipartException.class})
+    ResponseEntity<ApiError.Body> invalidUpload() {
+        return response(ApiError.MATERIAL_FILE_INVALID);
     }
 
     @ExceptionHandler({TransientDataAccessException.class, DataAccessResourceFailureException.class,

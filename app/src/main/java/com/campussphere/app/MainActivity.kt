@@ -96,7 +96,7 @@ class MainActivity : ComponentActivity() {
             departmentRepository, programApi, periodApi, offeringApi)
         val studentRepository = StudentRepository(RetrofitClient.createService(StudentApi::class.java),
             departmentRepository, programApi, periodApi, offeringApi)
-        val materials = MaterialRepository(RetrofitClient.createService(MaterialApi::class.java), RetrofitClient.createService(AttendanceApi::class.java))
+        val materials = MaterialRepository(RetrofitClient.createService(MaterialApi::class.java))
         val attendanceRepository = AttendanceRepository(RetrofitClient.createService(AttendanceApi::class.java))
         val platformRepository = PlatformRepository(RetrofitClient.createService(PlatformApi::class.java))
         val registrationApi = RetrofitClient.createService(com.campussphere.app.data.remote.api.CollegeRegistrationApi::class.java)

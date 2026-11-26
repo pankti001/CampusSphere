@@ -4,6 +4,9 @@ import org.springframework.http.HttpStatus;
 
 public enum ApiError {
     MATERIAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Material or assignment unavailable."),
+    MATERIAL_FILE_INVALID(HttpStatus.BAD_REQUEST, "Upload a PDF, Word, PowerPoint, Excel or plain-text file up to 10 MB."),
+    MATERIAL_DUPLICATE(HttpStatus.CONFLICT, "This file is already shared with this class."),
+    MATERIAL_STATE_CONFLICT(HttpStatus.CONFLICT, "This material can no longer be changed. Refresh and try again."),
     INVALID_AUTHENTICATION(HttpStatus.UNAUTHORIZED, "Authentication is required or invalid."),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "You do not have permission to perform this action."),
     VERIFICATION_REQUIRED(HttpStatus.FORBIDDEN, "Account verification is required."),
