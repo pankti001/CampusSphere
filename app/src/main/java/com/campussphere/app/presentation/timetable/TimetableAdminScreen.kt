@@ -1,6 +1,12 @@
 package com.campussphere.app.presentation.timetable
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import com.campussphere.app.data.remote.api.TimetableSummary
+import com.campussphere.app.data.repository.TimetableImportRepository
+import com.campussphere.app.data.repository.XLSX_MIME
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,17 +27,26 @@ import com.campussphere.app.data.remote.api.TimetableEntry
 import com.campussphere.app.data.repository.TimetableRepository
 import com.campussphere.app.presentation.materials.materialTime
 
-private enum class Confirm { DELETE_ENTRY, DISCARD, UNPUBLISH, PUBLISH }
+private enum class Confirm { DELETE_ENTRY, DISCARD, UNPUBLISH, PUBLISH, IMPORT, COPY }
 
 /** College Admin timetable management. */
 @Composable
-fun TimetableAdminScreen(repo: TimetableRepository, auth: () -> String, lost: (Int) -> Unit, exit: () -> Unit) {
+fun TimetableAdminScreen(repo: TimetableRepository, imports: TimetableImportRepository, auth: () -> String,
+                         lost: (Int) -> Unit, exit: () -> Unit) {
     val owner = remember { object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() } }
     DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
-    val vm = viewModel<TimetableAdminViewModel>(viewModelStoreOwner = owner) { TimetableAdminViewModel(repo, auth, lost) }
+    val vm = viewModel<TimetableAdminViewModel>(viewModelStoreOwner = owner) { TimetableAdminViewModel(repo, auth, lost, imports) }
     val ui by vm.ui.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<Confirm?>(null) }
     var entryToDelete by remember { mutableStateOf<TimetableEntry?>(null) }
+    var copySource by remember { mutableStateOf<TimetableSummary?>(null) }
+    val context = LocalContext.current
+    val pickSheet = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.pickImportFile { imports.readSheet(context.contentResolver, uri) }
+    }
+    val saveTemplate = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(XLSX_MIME)) { uri ->
+        if (uri != null) vm.downloadTemplate { api, semester -> api.downloadTemplate(auth(), semester, context.contentResolver, uri) }
+    }
 
     LaunchedEffect(vm) { if (!vm.ui.value.loaded) vm.loadScopes() }
     BackHandler { if (!vm.back()) exit() }
@@ -49,6 +64,8 @@ fun TimetableAdminScreen(repo: TimetableRepository, auth: () -> String, lost: (I
                 AdminPage.PREVIEW -> "Preview and publish"
                 AdminPage.HISTORY -> "Change history"
                 AdminPage.CLASSROOMS -> "Classrooms"
+                AdminPage.IMPORT -> "Upload Excel timetable"
+                AdminPage.COPY -> "Copy a timetable"
             }, style = MaterialTheme.typography.headlineMedium)
             if (ui.page in setOf(AdminPage.EDITOR, AdminPage.ENTRY, AdminPage.PREVIEW, AdminPage.HISTORY)) detail?.timetable?.let {
                 Text("${it.program} · ${it.semester} · ${it.division} · ${it.academicYear}", style = MaterialTheme.typography.bodyMedium)
@@ -69,6 +86,9 @@ fun TimetableAdminScreen(repo: TimetableRepository, auth: () -> String, lost: (I
             AdminPage.PREVIEW -> if (detail != null) previewPage(ui, detail) { confirm = Confirm.PUBLISH }
             AdminPage.HISTORY -> historyPage(ui)
             AdminPage.CLASSROOMS -> classroomPage(ui, vm)
+            AdminPage.IMPORT -> importPage(ui, { saveTemplate.launch("timetable-template.xlsx") },
+                { pickSheet.launch(arrayOf(XLSX_MIME, "application/octet-stream")) }) { confirm = Confirm.IMPORT }
+            AdminPage.COPY -> copyPage(ui) { copySource = it; confirm = Confirm.COPY }
         }
     }
 
@@ -79,6 +99,8 @@ fun TimetableAdminScreen(repo: TimetableRepository, auth: () -> String, lost: (I
                 "${dayName(it.day)} ${hhmm(it.start)}–${hhmm(it.end)} · ${entryTitle(it)}" }.orEmpty(), "Remove")
             Confirm.DISCARD -> Triple("Discard this draft?", "The draft is archived and kept in the history. The published timetable, if any, does not change.", "Discard")
             Confirm.UNPUBLISH -> Triple("Unpublish version $version?", "Students and faculty will no longer see a timetable for this class until a new version is published.", "Unpublish")
+            Confirm.IMPORT -> ui.importPreview.let { p -> Triple("Import as drafts?", "${p?.validRows ?: 0} periods will be saved as ${p?.divisions?.size ?: 0} draft timetable(s). Nothing is published until you publish each draft.", "Import") }
+            Confirm.COPY -> Triple("Copy this timetable?", copySource?.let { "From ${it.program} · ${it.semester} · ${it.division}, version ${it.version}. A new draft is created for the chosen class; lessons without a matching faculty assignment are left out and listed." }.orEmpty(), "Copy")
             Confirm.PUBLISH -> Triple("Publish version $version?", "Students of this division and their faculty see it immediately. The currently published version, if any, is archived and kept in the history.", "Publish")
         }
         AlertDialog(onDismissRequest = { confirm = null }, title = { Text(title) }, text = { Text(text) },
@@ -89,6 +111,8 @@ fun TimetableAdminScreen(repo: TimetableRepository, auth: () -> String, lost: (I
                         Confirm.DELETE_ENTRY -> entryToDelete?.let(vm::deleteEntry)
                         Confirm.DISCARD, Confirm.UNPUBLISH -> vm.archive()
                         Confirm.PUBLISH -> vm.publish()
+                        Confirm.IMPORT -> vm.confirmImport()
+                        Confirm.COPY -> copySource?.let { vm.copyFrom(it.id) }
                     }
                 }) { Text(button) }
             },
@@ -111,6 +135,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scopePage(ui: Timetab
                 ChoicePicker("Semester", lists.semesters, ui.choice.semesterId, ui.choice.programId != null, Modifier.fillMaxWidth()) { vm.choose(3, it) }
                 ChoicePicker("Division", lists.divisions, ui.choice.divisionId, ui.choice.semesterId != null, Modifier.fillMaxWidth()) { vm.choose(4, it) }
                 if (ui.choice.complete) Button(vm::loadVersions, enabled = !ui.loading, modifier = Modifier.fillMaxWidth()) { Text("Open timetable") }
+                if (ui.choice.semesterId != null) OutlinedButton(vm::startImport, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
+                    Text("Upload Excel for this semester")
+                }
             }
             if (ui.error != null && !ui.loaded) TextButton(vm::loadScopes) { Text("Retry") }
         }
@@ -122,9 +149,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.versionsPage(ui: Time
     val hasPublished = ui.versions.any { it.status == "PUBLISHED" }
     item {
         ui.versions.firstOrNull()?.let { Text("${it.program} · ${it.semester} · ${it.division}", style = MaterialTheme.typography.titleMedium) }
-        if (!hasDraft) Button(vm::createDraft, enabled = !ui.busy, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            Text(if (hasPublished) "Start a new version from the published one" else "Create timetable")
-        }
+        if (!hasDraft) Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Create a timetable", style = MaterialTheme.typography.titleSmall)
+            Button(vm::createDraft, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
+                Text(if (hasPublished) "Manually: start from the published version" else "Manually: add periods one by one")
+            }
+            OutlinedButton(vm::startImport, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) { Text("Upload an Excel file") }
+            OutlinedButton(vm::startCopy, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) { Text("Copy another timetable") }
+        } else Text("A draft exists. Open it below, or discard it to create a new one another way.", Modifier.padding(top = 8.dp))
         if (ui.loaded && ui.versions.isEmpty() && !ui.loading) Text("This class has no timetable yet.", Modifier.padding(top = 8.dp))
     }
     items(ui.versions, key = { it.id }) { v ->
@@ -163,6 +195,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.editorPage(
                 "PUBLISHED" -> Text("Students and faculty see this version. To change it, start a new version.")
                 else -> Text("Archived. Kept for history; nobody sees it.")
             }
+            if (ui.copySkipped.isNotEmpty())
+                MessageCard("Left out while copying (add them by hand if needed):\n" + ui.copySkipped.joinToString("\n") { "• $it" }, error = false)
             if (t.status == "PUBLISHED" && detail.problems.isNotEmpty())
                 MessageCard("Needs attention:\n" + detail.problems.joinToString("\n") { "• " + it.detail }, error = true)
             DayChips(shownDays(detail.entries.map { it.day }), ui.day) { vm.setDay(it) }
@@ -313,6 +347,74 @@ private fun androidx.compose.foundation.lazy.LazyListScope.classroomPage(ui: Tim
                 Text(room.code, fontWeight = FontWeight.SemiBold)
                 Text(room.name + (room.capacity?.let { " · $it seats" } ?: ""), modifier = Modifier.weight(1f))
                 if (!room.active) Badge("Inactive", MaterialTheme.colorScheme.surfaceVariant)
+            }
+        }
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.importPage(
+    ui: TimetableAdminUi, downloadTemplate: () -> Unit, chooseFile: () -> Unit, confirmImport: () -> Unit,
+) {
+    val preview = ui.importPreview
+    item {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val semester = ui.scopes.firstOrNull { it.semesterId == ui.choice.semesterId }
+            semester?.let { Text("${it.program} · ${it.semester} · ${it.academicYear}", style = MaterialTheme.typography.titleMedium) }
+            Text("1. Download the template. Its Reference sheet lists this semester's divisions, subjects with their faculty, and classrooms.")
+            OutlinedButton(downloadTemplate, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) { Text("Download template") }
+            Text("2. Fill in one row per period and save it as .xlsx (up to 2 MB, 1000 rows).")
+            Text("3. Upload it. You see every problem before anything is saved. Imports always become drafts.")
+            Button(chooseFile, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
+                Text(if (ui.importFile == null) "Choose Excel file" else "Choose a corrected file")
+            }
+            ui.importFile?.let { Text("File: ${it.fileName}", style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+    if (preview == null) return
+    item {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            HorizontalDivider()
+            Text("Preview: ${preview.rows} rows · ${preview.validRows} ready · ${preview.errorRows} with problems",
+                style = MaterialTheme.typography.titleMedium)
+            if (preview.fileErrors.isNotEmpty()) MessageCard(preview.fileErrors.joinToString("\n") { "• $it" }, error = true)
+            preview.divisions.forEach { d ->
+                Text("Division ${d.division}: ${d.periods} periods (${d.lessons} lessons) → new draft version ${d.newVersion}" +
+                    (d.publishedVersion?.let { v -> ", replaces published version $v only when you publish it" } ?: ""),
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+            if (preview.canImport) Button(confirmImport, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
+                Text("Import ${preview.validRows} periods as drafts")
+            } else MessageCard("Nothing can be imported yet. Correct the file and choose it again.", error = false)
+        }
+    }
+    val rows = preview.details.sortedBy { if (it.errors.isEmpty()) 1 else 0 }.take(300)
+    items(rows, key = { "row-${it.row}" }) { r ->
+        Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            Text("Row ${r.row} · ${r.division} · ${r.day} ${r.start}–${r.end} · " +
+                listOf(r.type.ifBlank { "Lesson" }, r.subjectCode, r.facultyEmail, r.classroomCode).filter { it.isNotBlank() }.joinToString(" · "),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (r.errors.isEmpty()) FontWeight.Normal else FontWeight.SemiBold)
+            r.errors.forEach { Text("• $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+    if (preview.details.size > rows.size) item { Text("Showing ${rows.size} of ${preview.details.size} rows (problems first).") }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.copyPage(ui: TimetableAdminUi, choose: (TimetableSummary) -> Unit) {
+    item {
+        val target = ui.scopes.firstOrNull { it.semesterId == ui.choice.semesterId && it.divisionId == ui.choice.divisionId }
+        target?.let { Text("Into: ${it.program} · ${it.semester} · Division ${it.division}", style = MaterialTheme.typography.titleMedium) }
+        Text("Choose a timetable to copy, for example last semester's. Lessons are matched to this class's current faculty assignments by subject code.")
+        if (ui.copySources.isEmpty()) Text("There is no other timetable in your college yet.", Modifier.padding(top = 8.dp))
+    }
+    items(ui.copySources, key = { it.id }) { s ->
+        OutlinedCard(onClick = { choose(s) }, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${s.program} · ${s.semester} · ${s.division}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    StatusBadge(s.status)
+                }
+                Text("${s.academicYear} · version ${s.version} · ${s.lessons} lessons · ${s.breaks} breaks", style = MaterialTheme.typography.bodySmall)
             }
         }
     }

@@ -26,8 +26,9 @@ data class TimetableEntry(
     val classroomCode: String?, val classroom: String?, val label: String?)
 
 data class TimetableProblem(val type: String, val entryId: Long?, val detail: String)
+/** notified: faculty notifications created by the publish or unpublish that returned this (otherwise 0). */
 data class TimetableDetail(val timetable: TimetableSummary, val entries: List<TimetableEntry>,
-                           val problems: List<TimetableProblem>, val ready: Boolean)
+                           val problems: List<TimetableProblem>, val ready: Boolean, val notified: Int = 0)
 data class TimetableAssignment(val id: Long, val subjectCode: String, val subject: String, val facultyId: Long, val faculty: String)
 data class TimetableClassroom(val id: Long, val code: String, val name: String, val capacity: Int?, val active: Boolean)
 data class TimetableOptions(val assignments: List<TimetableAssignment>, val classrooms: List<TimetableClassroom>)

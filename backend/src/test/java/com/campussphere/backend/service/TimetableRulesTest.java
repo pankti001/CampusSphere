@@ -20,7 +20,8 @@ import static org.mockito.Mockito.*;
 
 class TimetableRulesTest {
     private final JdbcTemplate db = mock(JdbcTemplate.class);
-    private final Timetables service = new Timetables(db);
+    private final FacultyNotifications notifications = mock(FacultyNotifications.class);
+    private final Timetables service = new Timetables(db, notifications);
     private static final LocalTime NINE = LocalTime.of(9, 0), TEN = LocalTime.of(10, 0), ELEVEN = LocalTime.of(11, 0);
 
     private static Account account(String role) {

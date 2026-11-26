@@ -72,7 +72,7 @@ fun SessionScreen(state: AuthUiState, onRefresh: () -> Unit, onReapply: () -> Un
                 Button(onClick = open, enabled = !state.isLoading) { Text("Request college affiliation") }
             }
             onAnnouncements?.let { Button(onClick = it, enabled = !state.isLoading) { Text("Announcements") } }
-            onTimetable?.let { Button(onClick = it, enabled = !state.isLoading) { Text("Timetables") } }
+            onTimetable?.let { Button(onClick = it, enabled = !state.isLoading) { Text("Timetables: create, upload or copy") } }
             onMaterials?.let { Button(onClick = it, enabled = !state.isLoading) { Text("Study materials") } }
             onAttendance?.let { open ->
                 Button(onClick = open, enabled = !state.isLoading) { Text("Attendance reports") }

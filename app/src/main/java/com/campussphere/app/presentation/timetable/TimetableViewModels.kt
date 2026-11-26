@@ -3,7 +3,9 @@ package com.campussphere.app.presentation.timetable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.campussphere.app.data.remote.api.*
+import com.campussphere.app.data.repository.PickedSheet
 import com.campussphere.app.data.repository.TimetableFailure
+import com.campussphere.app.data.repository.TimetableImportRepository
 import com.campussphere.app.data.repository.TimetableRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,7 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-enum class AdminPage { SCOPE, VERSIONS, EDITOR, ENTRY, PREVIEW, HISTORY, CLASSROOMS }
+enum class AdminPage { SCOPE, VERSIONS, EDITOR, ENTRY, PREVIEW, HISTORY, CLASSROOMS, IMPORT, COPY }
 
 data class TimetableAdminUi(
     val page: AdminPage = AdminPage.SCOPE,
@@ -32,6 +34,11 @@ data class TimetableAdminUi(
     val roomForm: RoomForm = RoomForm(),
     val editingRoomId: Long? = null,
     val classroomsReturn: AdminPage = AdminPage.SCOPE,
+    val importFile: PickedSheet? = null,
+    val importPreview: TimetableImportPreview? = null,
+    val importReturn: AdminPage = AdminPage.SCOPE,
+    val copySources: List<TimetableSummary> = emptyList(),
+    val copySkipped: List<String> = emptyList(),
     val loading: Boolean = false,
     val loaded: Boolean = false,
     val busy: Boolean = false,
@@ -46,8 +53,77 @@ class TimetableAdminViewModel(
     private val repo: TimetableRepository,
     private val auth: () -> String,
     private val lost: (Int) -> Unit,
+    private val imports: TimetableImportRepository? = null,
 ) : ViewModel() {
     private val state = MutableStateFlow(TimetableAdminUi())
+
+    // ---- Excel upload: preview first, then an explicit confirmation; always creates drafts ----
+
+    fun startImport() = state.update {
+        it.copy(page = AdminPage.IMPORT, importReturn = it.page, importFile = null, importPreview = null,
+            error = null, notice = null)
+    }
+
+    /** Reading the picked file can fail on the phone (wrong type, too big); the server checks everything else. */
+    fun pickImportFile(read: suspend () -> PickedSheet) {
+        val semester = state.value.choice.semesterId ?: return
+        val api = imports ?: return
+        action {
+            val file = read()
+            state.update { it.copy(importFile = file, importPreview = null) }
+            val preview = api.preview(auth(), semester, file)
+            state.update { it.copy(importPreview = preview) }
+        }
+    }
+
+    fun confirmImport() {
+        val s = state.value
+        val semester = s.choice.semesterId ?: return
+        val file = s.importFile ?: return
+        val preview = s.importPreview?.takeIf { it.canImport } ?: return
+        val api = imports ?: return
+        action {
+            val result = api.importFile(auth(), semester, file, preview.sha256)
+            val c = state.value.choice
+            val versions = if (c.semesterId != null && c.divisionId != null) repo.versions(auth(), c.semesterId, c.divisionId) else emptyList()
+            state.update {
+                it.copy(page = if (c.complete) AdminPage.VERSIONS else AdminPage.SCOPE, versions = versions,
+                    importFile = null, importPreview = null,
+                    notice = "Imported ${result.periods} periods into ${result.drafts.size} draft timetable(s): " +
+                        result.drafts.joinToString { d -> "${d.division} v${d.version}" } + ". Nothing is published yet.")
+            }
+        }
+    }
+
+    fun downloadTemplate(save: suspend (TimetableImportRepository, Long?) -> Unit) {
+        val api = imports ?: return
+        val semester = state.value.choice.semesterId
+        action { save(api, semester); state.update { it.copy(notice = "Template saved. Fill it in and upload it here.") } }
+    }
+
+    // ---- Copy an existing timetable into a new draft for the chosen class ----
+
+    fun startCopy() {
+        val c = state.value.choice
+        if (!c.complete) return
+        action {
+            val sources = repo.all(auth()).filterNot { it.status == "DRAFT" && it.semesterId == c.semesterId && it.divisionId == c.divisionId }
+            state.update { it.copy(page = AdminPage.COPY, copySources = sources) }
+        }
+    }
+
+    fun copyFrom(sourceId: Long) {
+        val c = state.value.choice
+        val semester = c.semesterId ?: return
+        val division = c.divisionId ?: return
+        val api = imports ?: return
+        action {
+            val result = api.copy(auth(), sourceId, semester, division)
+            showDetail(result.timetable, "Copied ${result.copied} periods into draft version ${result.timetable.timetable.version}." +
+                if (result.skipped.isEmpty()) "" else " ${result.skipped.size} left out; see below.")
+            state.update { it.copy(copySkipped = result.skipped) }
+        }
+    }
     val ui: StateFlow<TimetableAdminUi> = state.asStateFlow()
 
     fun loadScopes() = action(loading = true) {
@@ -101,7 +177,7 @@ class TimetableAdminViewModel(
         val options = if (detail.timetable.status == "DRAFT") repo.options(auth(), detail.timetable.id) else null
         val firstDay = detail.entries.minOfOrNull { it.day } ?: 1
         state.update {
-            it.copy(detail = detail, options = options, page = AdminPage.EDITOR, publishProblems = emptyList(),
+            it.copy(detail = detail, options = options, page = AdminPage.EDITOR, publishProblems = emptyList(), copySkipped = emptyList(),
                 day = if (it.detail?.timetable?.id == detail.timetable.id) it.day else firstDay, notice = notice)
         }
     }
@@ -158,7 +234,8 @@ class TimetableAdminViewModel(
             val published = repo.publish(auth(), detail.timetable.id, detail.timetable.revision)
             state.update {
                 it.copy(detail = published, options = null, page = AdminPage.EDITOR,
-                    notice = "Version ${published.timetable.version} is published. Students and faculty now see it.")
+                    notice = "Version ${published.timetable.version} is published. Students and faculty now see it. " +
+                        "${published.notified} faculty notification(s) sent.")
             }
         }
     }
@@ -221,6 +298,8 @@ class TimetableAdminViewModel(
             AdminPage.ENTRY, AdminPage.PREVIEW, AdminPage.HISTORY ->
                 state.update { it.copy(page = AdminPage.EDITOR, clashes = emptyList(), publishProblems = emptyList()) }
             AdminPage.CLASSROOMS -> state.update { it.copy(page = it.classroomsReturn) }
+            AdminPage.IMPORT -> state.update { it.copy(page = it.importReturn, importFile = null, importPreview = null) }
+            AdminPage.COPY -> state.update { it.copy(page = AdminPage.VERSIONS) }
         }
         state.update { it.copy(error = null) }
         return true

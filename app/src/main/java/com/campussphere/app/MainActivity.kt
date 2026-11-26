@@ -54,6 +54,12 @@ import com.campussphere.app.data.remote.api.TimetableApi
 import com.campussphere.app.data.repository.TimetableRepository
 import com.campussphere.app.presentation.timetable.MyTimetableScreen
 import com.campussphere.app.presentation.timetable.TimetableAdminScreen
+import com.campussphere.app.data.remote.api.TimetableImportApi
+import com.campussphere.app.data.remote.api.FacultyNotificationApi
+import com.campussphere.app.data.repository.TimetableImportRepository
+import com.campussphere.app.data.repository.FacultyNotificationRepository
+import com.campussphere.app.presentation.notifications.FacultyNotificationEffects
+import com.campussphere.app.presentation.notifications.FacultyNotificationsScreen
 import com.campussphere.app.data.remote.api.AttendanceApi
 import com.campussphere.app.data.repository.AttendanceRepository
 import com.campussphere.app.presentation.attendance.AttendanceMode
@@ -106,6 +112,8 @@ class MainActivity : ComponentActivity() {
         val materials = MaterialRepository(RetrofitClient.createService(MaterialApi::class.java))
         val announcements = AnnouncementRepository(RetrofitClient.createService(AnnouncementApi::class.java), materials)
         val timetables = TimetableRepository(RetrofitClient.createService(TimetableApi::class.java))
+        val timetableImports = TimetableImportRepository(RetrofitClient.createService(TimetableImportApi::class.java))
+        val facultyNotices = FacultyNotificationRepository(RetrofitClient.createService(FacultyNotificationApi::class.java))
         val attendanceRepository = AttendanceRepository(RetrofitClient.createService(AttendanceApi::class.java))
         val platformRepository = PlatformRepository(RetrofitClient.createService(PlatformApi::class.java))
         val registrationApi = RetrofitClient.createService(com.campussphere.app.data.remote.api.CollegeRegistrationApi::class.java)
@@ -190,7 +198,7 @@ class MainActivity : ComponentActivity() {
                     } else if (state.account?.dashboardRole == DashboardRole.COLLEGE_ADMIN) {
                         var academicSection by rememberSaveable { mutableStateOf<AcademicSection?>(null) }
                         val section = academicSection
-                        if (section == AcademicSection.TIMETABLES) TimetableAdminScreen(timetables, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
+                        if (section == AcademicSection.TIMETABLES) TimetableAdminScreen(timetables, timetableImports, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.ANNOUNCEMENTS) AnnouncementScreen(announcements, "college", auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.MATERIALS) MaterialScreen(materials,"college",auth::departmentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.ATTENDANCE) {
@@ -226,7 +234,14 @@ class MainActivity : ComponentActivity() {
                         var showMaterials by rememberSaveable { mutableStateOf(false) }
                         var showAnnouncements by rememberSaveable { mutableStateOf(false) }
                         var showTimetable by rememberSaveable { mutableStateOf(false) }
-                        if (showTimetable) MyTimetableScreen(timetables, "faculty", auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showTimetable = false }
+                        var showNotifications by rememberSaveable { mutableStateOf(false) }
+                        var unreadNotices by rememberSaveable { mutableStateOf(0) }
+                        var noticeRefresh by rememberSaveable { mutableStateOf(0) }
+                        FacultyNotificationEffects(facultyNotices, auth::facultyAuthorization, noticeRefresh) { unreadNotices = it }
+                        if (showNotifications) FacultyNotificationsScreen(facultyNotices, auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
+                            { showNotifications = false; noticeRefresh++ }) { showNotifications = false; showTimetable = true; noticeRefresh++ }
+                        else if (showTimetable) MyTimetableScreen(timetables, "faculty", auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
+                            unreadNotices = unreadNotices, onNotices = { showTimetable = false; showNotifications = true }) { showTimetable = false }
                         else if (showAnnouncements) AnnouncementScreen(announcements, "faculty", auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showAnnouncements = false }
                         else if (showMaterials) MaterialScreen(materials,"faculty",auth::facultyAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
                         else if (showAttendance) AttendanceScreen(attendanceRepository, auth::facultyAuthorization, { status ->
@@ -235,7 +250,8 @@ class MainActivity : ComponentActivity() {
                         else FacultyScreen(facultyRepository, auth::facultyAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, auth::logout, dashboard = true, onMaterials = { showMaterials = true }, onAttendance = { showAttendance = true },
-                            onAnnouncements = { showAnnouncements = true }, onTimetable = { showTimetable = true })
+                            onAnnouncements = { showAnnouncements = true }, onTimetable = { showTimetable = true },
+                            onNotifications = { showNotifications = true }, unreadNotifications = unreadNotices)
                     } else if (state.account?.studentAffiliationEligible == true) {
                         var showRequest by rememberSaveable { mutableStateOf(false) }
                         if (showRequest) StudentScreen(studentRepository, auth::studentAffiliationAuthorization, { status ->

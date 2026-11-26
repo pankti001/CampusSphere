@@ -27,6 +27,9 @@ fun timetableErrorMessage(status: Int, code: String?): String = when (code) {
     "CLASSROOM_INVALID" -> "Enter a classroom code (letters, digits, - or _), a name and an optional capacity up to 2000."
     "CLASSROOM_CODE_TAKEN" -> "Another classroom already uses this code."
     "CLASSROOM_NOT_FOUND" -> "This classroom is no longer available."
+    "TIMETABLE_IMPORT_INVALID" -> "Fix the problems shown in the preview, then upload the corrected file."
+    "TIMETABLE_IMPORT_CHANGED" -> "The file changed since the preview. Preview it again before importing."
+    "NOTIFICATION_NOT_FOUND" -> "This notification is no longer available."
     "VERIFICATION_REQUIRED" -> "Your account must be verified first."
     else -> when (status) {
         401 -> "Your session expired. Sign in again."
@@ -37,13 +40,15 @@ fun timetableErrorMessage(status: Int, code: String?): String = when (code) {
     }
 }
 
-private data class TimetableErrorBody(val code: String?, val clashes: List<TimetableClash>?, val problems: List<TimetableProblem>?)
+internal data class TimetableErrorBody(val code: String?, val clashes: List<TimetableClash>?, val problems: List<TimetableProblem>?)
 
 class TimetableRepository(private val api: TimetableApi) {
     private val gson = Gson()
 
     suspend fun scopes(auth: String) = call { api.scopes(auth) }
     suspend fun versions(auth: String, semesterId: Long, divisionId: Long) = call { api.list(auth, semesterId, divisionId, null, 0) }
+    /** Every timetable of the college (newest academic year first), for choosing one to copy. */
+    suspend fun all(auth: String, page: Int = 0) = call { api.list(auth, null, null, null, page) }
     suspend fun create(auth: String, semesterId: Long, divisionId: Long) = call { api.create(auth, TimetableCreate(semesterId, divisionId)) }
     suspend fun detail(auth: String, id: Long) = call { api.detail(auth, id) }
     suspend fun preview(auth: String, id: Long) = call { api.preview(auth, id) }
@@ -63,20 +68,23 @@ class TimetableRepository(private val api: TimetableApi) {
     suspend fun week(auth: String, area: String) = call { api.week(auth, area) }
     suspend fun day(auth: String, area: String, date: String?) = call { api.day(auth, area, date) }
 
-    private suspend fun <T> call(block: suspend () -> Response<T>): T {
-        val response = try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: IOException) {
-            throw TimetableFailure(0, null, timetableErrorMessage(0, null))
-        }
-        if (response.isSuccessful) {
-            @Suppress("UNCHECKED_CAST")
-            return (response.body() ?: Unit) as T
-        }
-        val body = runCatching { gson.fromJson(response.errorBody()?.string().orEmpty(), TimetableErrorBody::class.java) }.getOrNull()
-        throw TimetableFailure(response.code(), body?.code, timetableErrorMessage(response.code(), body?.code),
-            body?.clashes.orEmpty(), body?.problems.orEmpty())
+    private suspend fun <T> call(block: suspend () -> Response<T>): T = timetableRequest(gson, block)
+}
+
+/** Runs a timetable request: friendly errors, with clashes and problems from the server's error body. */
+internal suspend fun <T> timetableRequest(gson: Gson, block: suspend () -> Response<T>): T {
+    val response = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: IOException) {
+        throw TimetableFailure(0, null, timetableErrorMessage(0, null))
     }
+    if (response.isSuccessful) {
+        @Suppress("UNCHECKED_CAST")
+        return (response.body() ?: Unit) as T
+    }
+    val body = runCatching { gson.fromJson(response.errorBody()?.string().orEmpty(), TimetableErrorBody::class.java) }.getOrNull()
+    throw TimetableFailure(response.code(), body?.code, timetableErrorMessage(response.code(), body?.code),
+        body?.clashes.orEmpty(), body?.problems.orEmpty())
 }

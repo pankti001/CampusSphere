@@ -112,7 +112,16 @@ public class Timetables {
     /** Something that blocks publication. type: EMPTY, ASSIGNMENT_ENDED, CLASSROOM_INACTIVE, FACULTY_CONFLICT, CLASSROOM_CONFLICT. */
     public record Problem(String type, Long entryId, String detail) {}
 
-    public record Detail(Summary timetable, List<Entry> entries, List<Problem> problems, boolean ready) {}
+    /** notified is the number of faculty notifications a publish or unpublish just created (otherwise 0). */
+    public record Detail(Summary timetable, List<Entry> entries, List<Problem> problems, boolean ready, int notified) {
+        public Detail(Summary timetable, List<Entry> entries, List<Problem> problems, boolean ready) {
+            this(timetable, entries, problems, ready, 0);
+        }
+
+        Detail withNotified(int count) {
+            return new Detail(timetable, entries, problems, ready, count);
+        }
+    }
 
     public record AssignmentOption(long id, String subjectCode, String subject, long facultyId, String faculty) {}
 
@@ -285,8 +294,10 @@ public class Timetables {
             r.getString("code"), r.getString("name"), r.getObject("capacity", Integer.class), r.getBoolean("is_active"));
 
     private final JdbcTemplate jdbc;
+    private final FacultyNotifications notifications;
 
-    public Timetables(JdbcTemplate jdbc) {
+    public Timetables(JdbcTemplate jdbc, FacultyNotifications notifications) {
+        this.notifications = notifications;
         this.jdbc = jdbc;
     }
 
@@ -573,9 +584,12 @@ public class Timetables {
                     updated_at=GREATEST(statement_timestamp(), updated_at)
                 WHERE college_id=? AND id=? AND status='DRAFT'
                 """, account.id(), college, t.id());
+        // Faculty are told about their own new, changed, reassigned or removed lessons, in this same transaction.
+        int notified = notifications.onPublish(college, t.id(), previous.isEmpty() ? null : previous.getFirst()[0]);
         event(college, t.id(), account.id(), "PUBLISHED", null, "Version " + t.version() + " published"
-                + (previous.isEmpty() ? "." : ", replacing version " + previous.getFirst()[1] + "."));
-        return detail(college, t.id());
+                + (previous.isEmpty() ? "" : ", replacing version " + previous.getFirst()[1])
+                + ". " + notified + " faculty notification" + (notified == 1 ? "" : "s") + " sent.");
+        return detail(college, t.id()).withNotified(notified);
     }
 
     /** Discards a draft, or unpublishes a published version. Archived versions stay in the history. */
@@ -594,10 +608,12 @@ public class Timetables {
                     updated_at=GREATEST(statement_timestamp(), updated_at)
                 WHERE college_id=? AND id=?
                 """, account.id(), college, id);
+        int notified = "PUBLISHED".equals(status) ? notifications.onUnpublish(college, id) : 0;
         event(college, id, account.id(), "ARCHIVED", null, "DRAFT".equals(status)
                 ? "Draft version " + row.getFirst()[1] + " discarded."
-                : "Version " + row.getFirst()[1] + " unpublished. Students and faculty no longer see it.");
-        return detail(college, id);
+                : "Version " + row.getFirst()[1] + " unpublished. Students and faculty no longer see it. "
+                  + notified + " faculty notification" + (notified == 1 ? "" : "s") + " sent.");
+        return detail(college, id).withNotified(notified);
     }
 
     // ---- Faculty and students ----
@@ -670,7 +686,7 @@ public class Timetables {
     record Lesson(long facultyId, long subjectId, String subjectCode, String subject, String faculty, String classroom) {}
 
     /** Serializes timetable writes per college and refuses writes for inactive colleges. */
-    private long writableCollege(Account account) {
+    long writableCollege(Account account) {
         long college = account.requireCollege(CollegeRole.COLLEGE_ADMIN, null);
         jdbc.query("SELECT pg_advisory_xact_lock(" + LOCK_NAMESPACE + ", pg_catalog.hashint8(?))", rs -> null, college);
         if (jdbc.queryForList("SELECT id FROM public.colleges WHERE id=? AND is_active FOR SHARE", Long.class, college)
@@ -711,13 +727,65 @@ public class Timetables {
     }
 
     private void requireNoClash(long college, Locked t, EntryInput in, Lesson lesson, long excludeEntry) {
-        long faculty = lesson == null ? -1 : lesson.facultyId();
-        long room = in.classroomId() == null ? -1 : in.classroomId();
-        var booked = jdbc.query(BOOKED, BOOKED_ROW, t.id(), college, in.day(), in.end(), in.start(), excludeEntry,
-                t.id(), t.divisionId(), faculty, room);
-        var found = clashes(new Candidate(in.day(), in.start(), in.end(), lesson == null ? null : faculty,
-                in.classroomId()), booked);
+        var found = findClashes(college, t.id(), t.divisionId(), in.day(), in.start(), in.end(),
+                lesson == null ? null : lesson.facultyId(), in.classroomId(), excludeEntry);
         if (!found.isEmpty()) throw new Rejected(ApiError.TIMETABLE_CONFLICT, found, List.of());
+    }
+
+    /** Clashes a period would have in this timetable (any overlap) or with other divisions' faculty or classroom use. */
+    List<Clash> findClashes(long college, long timetableId, long divisionId, int day, LocalTime start, LocalTime end,
+                            Long faculty, Long room, long excludeEntry) {
+        var booked = jdbc.query(BOOKED, BOOKED_ROW, timetableId, college, day, end, start, excludeEntry,
+                timetableId, divisionId, faculty == null ? -1L : faculty, room == null ? -1L : room);
+        return clashes(new Candidate(day, start, end, faculty, room), booked);
+    }
+
+    /** Adds a period to a draft; the timetable supplies the college and academic scope. */
+    long insertEntry(long college, long timetableId, String kind, int day, LocalTime start, LocalTime end,
+                     Long assignmentId, Long facultyId, Long subjectId, Long classroomId, String label, long actor) {
+        return jdbc.queryForObject("""
+                INSERT INTO public.timetable_entries (college_id, timetable_id, department_id, program_id,
+                    academic_year_id, semester_id, division_id, kind, day_of_week, start_time, end_time,
+                    assignment_id, faculty_id, subject_id, classroom_id, label, updated_by)
+                SELECT t.college_id, t.id, t.department_id, t.program_id, t.academic_year_id, t.semester_id,
+                    t.division_id, CAST(? AS varchar), CAST(? AS smallint), CAST(? AS time), CAST(? AS time),
+                    CAST(? AS bigint), CAST(? AS bigint), CAST(? AS bigint), CAST(? AS bigint), CAST(? AS varchar),
+                    CAST(? AS bigint)
+                FROM public.timetables t WHERE t.college_id=? AND t.id=?
+                RETURNING id
+                """, Long.class, kind, day, start, end, assignmentId, facultyId, subjectId, classroomId, label, actor,
+                college, timetableId);
+    }
+
+    /** Creates an empty draft version for a division and semester; the caller has checked no draft exists. */
+    long insertDraft(long college, long semesterId, long divisionId, long actor) {
+        int version = jdbc.queryForObject("""
+                SELECT COALESCE(max(version), 0) + 1 FROM public.timetables
+                WHERE college_id=? AND semester_id=? AND division_id=?
+                """, Integer.class, college, semesterId, divisionId);
+        return jdbc.queryForObject("""
+                INSERT INTO public.timetables (college_id, department_id, program_id, academic_year_id, semester_id,
+                    division_id, version, created_by)
+                SELECT sem.college_id, p.department_id, sem.program_id, sem.academic_year_id, sem.id, v.id,
+                    CAST(? AS integer), CAST(? AS bigint)
+                FROM public.academic_semesters sem
+                JOIN public.academic_divisions v ON v.college_id=sem.college_id AND v.program_id=sem.program_id
+                     AND v.academic_year_id=sem.academic_year_id
+                JOIN public.academic_programs p ON p.college_id=sem.college_id AND p.id=sem.program_id
+                WHERE sem.college_id=? AND sem.id=? AND v.id=?
+                RETURNING id
+                """, Long.class, version, actor, college, semesterId, divisionId);
+    }
+
+    boolean hasDraft(long college, long semesterId, long divisionId) {
+        return !jdbc.queryForList("""
+                SELECT id FROM public.timetables WHERE college_id=? AND semester_id=? AND division_id=? AND status='DRAFT'
+                FOR UPDATE
+                """, Long.class, college, semesterId, divisionId).isEmpty();
+    }
+
+    void touchDraft(long college, long id) {
+        touch(college, id);
     }
 
     private void touch(long college, long id) {
@@ -727,7 +795,7 @@ public class Timetables {
                 """, college, id);
     }
 
-    private void event(long college, long timetable, long actor, String action, Long entry, String detail) {
+    void event(long college, long timetable, long actor, String action, Long entry, String detail) {
         String text = detail.length() > 300 ? detail.substring(0, 299) + "…" : detail;
         jdbc.update("""
                 INSERT INTO public.timetable_events (college_id, timetable_id, actor_id, action, entry_id, detail)
@@ -751,7 +819,7 @@ public class Timetables {
                 : time + " · " + (e.label() == null ? ("LUNCH".equals(e.kind()) ? "Lunch" : "Break") : e.label());
     }
 
-    private Summary summary(long college, long id) {
+    Summary summary(long college, long id) {
         var rows = jdbc.query(SUMMARY + " WHERE t.college_id=? AND t.id=?", SUMMARY_ROW, college, id);
         if (rows.isEmpty()) throw ApiError.TIMETABLE_NOT_FOUND.exception();
         return rows.getFirst();

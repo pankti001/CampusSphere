@@ -23,7 +23,8 @@ import java.time.format.DateTimeFormatter
 
 /** Read-only timetable for faculty ("faculty") and students ("student"): today's schedule and the full week. */
 @Composable
-fun MyTimetableScreen(repo: TimetableRepository, area: String, auth: () -> String, lost: (Int) -> Unit, exit: () -> Unit) {
+fun MyTimetableScreen(repo: TimetableRepository, area: String, auth: () -> String, lost: (Int) -> Unit,
+                      unreadNotices: Int = 0, onNotices: (() -> Unit)? = null, exit: () -> Unit) {
     val owner = remember(area) { object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() } }
     DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
     val vm = viewModel<MyTimetableViewModel>(viewModelStoreOwner = owner) { MyTimetableViewModel(repo, area, auth, lost) }
@@ -56,6 +57,10 @@ fun MyTimetableScreen(repo: TimetableRepository, area: String, auth: () -> Strin
             if (ui.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
         }
         ui.error?.let { item { MessageCard(it, error = true, action = "Retry" to vm::load) } }
+        if (onNotices != null && unreadNotices > 0) item {
+            MessageCard("You have $unreadNotices unread timetable notification(s) about your classes.", error = false,
+                action = "View notifications" to onNotices)
+        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(ui.tab == MyTab.TODAY, { vm.setTab(MyTab.TODAY) }, { Text("Today") })
