@@ -25,7 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -139,7 +139,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                var application by androidx.compose.runtime.remember { mutableStateOf(false) }
+                var application by rememberSaveable { mutableStateOf(false) }
                 if (state.route == AuthRoute.LOGIN && application) {
                     com.campussphere.app.presentation.auth.CollegeApplicationScreen(registrationApi) { application = false }
                     return@CampusSphereTheme
@@ -179,7 +179,7 @@ class MainActivity : ComponentActivity() {
                         PlatformScreen(platformRepository, auth::platformAuthorization, auth::expirePlatformSession,
                             auth::logout)
                     } else if (state.account?.dashboardRole == DashboardRole.COLLEGE_ADMIN) {
-                        var academicSection by remember { mutableStateOf<AcademicSection?>(null) }
+                        var academicSection by rememberSaveable { mutableStateOf<AcademicSection?>(null) }
                         val section = academicSection
                         if (section == AcademicSection.MATERIALS) MaterialScreen(materials,"college",auth::departmentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.ATTENDANCE) {
@@ -209,8 +209,8 @@ class MainActivity : ComponentActivity() {
                             onStudents = { academicSection = AcademicSection.STUDENTS },
                             onMaterials = { academicSection = AcademicSection.MATERIALS }, onAttendance = { academicSection = AcademicSection.ATTENDANCE })
                     } else if (state.account?.dashboardRole == DashboardRole.FACULTY) {
-                        var showAttendance by remember { mutableStateOf(false) }
-                        var showMaterials by remember { mutableStateOf(false) }
+                        var showAttendance by rememberSaveable { mutableStateOf(false) }
+                        var showMaterials by rememberSaveable { mutableStateOf(false) }
                         if (showMaterials) MaterialScreen(materials,"faculty",auth::facultyAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
                         else if (showAttendance) AttendanceScreen(attendanceRepository, auth::facultyAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
@@ -219,15 +219,15 @@ class MainActivity : ComponentActivity() {
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, auth::logout, dashboard = true, onMaterials = { showMaterials = true }, onAttendance = { showAttendance = true })
                     } else if (state.account?.studentAffiliationEligible == true) {
-                        var showRequest by remember { mutableStateOf(false) }
+                        var showRequest by rememberSaveable { mutableStateOf(false) }
                         if (showRequest) StudentScreen(studentRepository, auth::studentAffiliationAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, { showRequest = false; auth.refresh() }, StudentMode.AFFILIATION)
                         else SessionScreen(state, auth::refresh, auth::reapplyForFaculty, auth::logout,
                             onStudentAffiliation = { showRequest = true })
                     } else if (state.account?.dashboardRole == DashboardRole.STUDENT) {
-                        var showAttendance by remember { mutableStateOf(false) }
-                        var showMaterials by remember { mutableStateOf(false) }
+                        var showAttendance by rememberSaveable { mutableStateOf(false) }
+                        var showMaterials by rememberSaveable { mutableStateOf(false) }
                         if (showMaterials) MaterialScreen(materials,"student",auth::studentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
                         else if (showAttendance) AttendanceScreen(attendanceRepository, auth::studentAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
