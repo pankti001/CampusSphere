@@ -153,6 +153,44 @@ class ChatTest {
         assertEquals("only the other sender's message is left", listOf(2L), vm.ui.value.messages.map { it.id })
     }
 
+    @Test fun savingAGroupGoesStraightToItsDetailsNeverABlankPage() {
+        val created = group.copy(id = 20, name = "Physics club", myRole = "OWNER", members = 1)
+        val api = object : FakeApi() {
+            override suspend fun conversations(auth: String) = Response.success(listOf(group, created))
+            override suspend fun createGroup(auth: String, input: ChatGroupInput) = Response.success(created)
+            override suspend fun updateGroup(auth: String, id: Long, input: ChatGroupInput) =
+                Response.success(created.copy(name = input.name))
+            override suspend fun members(auth: String, id: Long) = Response.success(listOf(ChatMember(7, "Asha Test", "OWNER", true)))
+            override suspend fun conversation(auth: String, id: Long) = Response.success(created)
+            override suspend fun messages(auth: String, id: Long, before: Long?) = Response.success(emptyList<ChatMessage>())
+        }
+        val vm = ChatViewModel(ChatRepository(api), { "Bearer s" }, {})
+        vm.start()
+        // A new group: its details page opens, ready to add members.
+        vm.newGroup()
+        vm.updateForm { it.copy(name = "Physics club") }
+        vm.saveGroup()
+        var ui = vm.ui.value
+        assertEquals(ChatPage.DETAILS, ui.page)
+        assertEquals(20L, ui.current?.id)
+        assertEquals(listOf("Asha Test"), ui.members.map { it.name })
+        assertNull(ui.form)
+        // Editing: back to the details it was opened from, with the new name.
+        vm.editGroup()
+        assertEquals(ChatPage.NEW_GROUP, vm.ui.value.page)
+        vm.updateForm { it.copy(name = "Physics club 2026") }
+        vm.saveGroup()
+        ui = vm.ui.value
+        assertEquals(ChatPage.DETAILS, ui.page)
+        assertEquals("Physics club 2026", ui.current?.name)
+        assertEquals("Group updated.", ui.notice)
+        // Back from details goes to the group's chat, and back again to the list.
+        assertTrue(vm.back())
+        assertEquals(ChatPage.CHAT, vm.ui.value.page)
+        assertTrue(vm.back())
+        assertEquals(ChatPage.LIST, vm.ui.value.page)
+    }
+
     @Test fun refusedSessionsAreReported() {
         val api = object : FakeApi() {
             override suspend fun conversations(auth: String): Response<List<ChatConversation>> =

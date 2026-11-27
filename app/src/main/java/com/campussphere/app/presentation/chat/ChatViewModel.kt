@@ -273,11 +273,14 @@ class ChatViewModel(private val repo: ChatRepository, private val auth: () -> St
             val input = ChatGroupInput(form.name.trim(), form.description.trim(), if (form.open) "OPEN" else "INVITE")
             val saved = if (form.id == null) repo.createGroup(auth(), input) else repo.updateGroup(auth(), form.id, input)
             val list = repo.conversations(auth())
+            val members = repo.members(auth(), saved.id)
+            // Straight to the group's details in the same step (a second step would be ignored while this one
+            // is busy, which used to leave an empty screen): back where an edit started, or ready to add members.
             state.update {
-                it.copy(form = null, conversations = list,
-                    notice = if (form.id == null) "Group created. Add members from its details." else "Group updated.")
+                it.copy(page = ChatPage.DETAILS, current = saved, members = members, form = null, formError = null,
+                    conversations = list, messages = if (form.id == null) emptyList() else it.messages,
+                    notice = if (form.id == null) "Group created. Tap Add member to invite classmates." else "Group updated.")
             }
-            open(saved)
         }
     }
 
