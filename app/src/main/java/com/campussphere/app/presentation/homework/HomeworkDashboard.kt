@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import com.campussphere.app.ui.brand.IconBadge
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -42,9 +45,13 @@ private fun <T> rememberSummary(lost: (Int) -> Unit, load: suspend () -> T): Pai
 fun FacultyHomeworkCard(repo: HomeworkRepository, auth: () -> String, lost: (Int) -> Unit,
                         onOpen: () -> Unit, onCreate: () -> Unit) {
     val (summary, error) = rememberSummary<FacultyHomeworkSummary>(lost) { repo.facultySummary(auth()) }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("📝 Assignments", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IconBadge("📝", Color(0xFFDBE6FF)); Text("Assignments", style = MaterialTheme.typography.titleMedium)
+            }
             summary?.let {
                 Text("${it.published} published · ${it.drafts} drafts · ${it.closed} closed")
                 Text("${it.toMark} submissions waiting to be marked · ${it.evaluated} marked",
@@ -64,9 +71,13 @@ fun FacultyHomeworkCard(repo: HomeworkRepository, auth: () -> String, lost: (Int
 fun StudentHomeworkCard(repo: HomeworkRepository, auth: () -> String, lost: (Int) -> Unit,
                         onOpen: (tab: String) -> Unit) {
     val (summary, error) = rememberSummary<StudentHomeworkSummary>(lost) { repo.studentSummary(auth()) }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("📝 My assignments", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IconBadge("📝", Color(0xFFDBE6FF)); Text("My assignments", style = MaterialTheme.typography.titleMedium)
+            }
             summary?.let { s ->
                 Text("${s.pending} pending · ${s.dueThisWeek} due this week · ${s.submitted} submitted · ${s.evaluated} marked")
                 if (s.unreadNotices > 0) Text("🔔 ${s.unreadNotices} new assignment notification" + if (s.unreadNotices == 1L) "" else "s",

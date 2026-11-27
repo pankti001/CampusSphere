@@ -34,43 +34,31 @@ fun LoginScreen(
     var rememberMe by remember { mutableStateOf(false) }
     var passwordVisible by remember { mutableStateOf(false) }
 
-    val primaryBlue = Color(0xFF2563EB)
+    val primaryBlue = com.campussphere.app.ui.theme.Brand.Blue
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(Brush.verticalGradient(listOf(com.campussphere.app.ui.theme.Brand.Sky, Color.White)))
+            .safeDrawingPadding()
             .verticalScroll(rememberScrollState())
             .imePadding()
             .padding(horizontal = 25.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
-        Spacer(modifier = Modifier.height(65.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
-        // Logo
-        Surface(
-            modifier = Modifier.size(75.dp),
-            shape = RoundedCornerShape(22.dp),
-            color = primaryBlue
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = "C",
-                    fontSize = 45.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-        }
+        com.campussphere.app.ui.brand.CampusLogo(size = 112.dp, animate = true)
+        com.campussphere.app.ui.brand.CampusWordmark(fontSize = 26.sp)
 
         Spacer(modifier = Modifier.height(18.dp))
 
         Text(
-            text = "Welcome Back!",
+            text = "Welcome back!",
             fontSize = 27.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF0F172A)
+            color = com.campussphere.app.ui.theme.Brand.Navy
         )
 
         Spacer(modifier = Modifier.height(8.dp))

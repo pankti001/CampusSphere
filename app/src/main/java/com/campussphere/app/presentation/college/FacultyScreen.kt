@@ -10,6 +10,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
+import com.campussphere.app.ui.brand.appear
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -45,7 +48,40 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
+        if (state.page == FacultyPage.DASHBOARD) item {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                com.campussphere.app.ui.brand.BrandHero(Modifier.appear(0)) {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        com.campussphere.app.ui.brand.CampusBrandRow(Modifier.weight(1f), logoSize = 34.dp, fontSize = 16.sp, onDark = true)
+                        TextButton(onClick = back) { Text("Sign out", color = Color.White) }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Faculty dashboard", style = MaterialTheme.typography.headlineMedium, color = Color.White)
+                    Text("Teach, mark and share with your classes.", style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.85f))
+                }
+                val tiles = buildList {
+                    onNotifications?.let { add(Triple("🔔", "Notifications" to if (unreadNotifications > 0) "$unreadNotifications new about your lessons" else "Lesson changes and updates", it)) }
+                    onTimetable?.let { add(Triple("🗓", "My timetable" to "Your lessons this week", it)) }
+                    onAttendance?.let { add(Triple("✅", "Attendance" to "Take and review class attendance", it)) }
+                    onMaterials?.let { add(Triple("📚", "Study materials" to "Share notes and files", it)) }
+                    onAnnouncements?.let { add(Triple("📣", "Announcements" to "Notices for your classes", it)) }
+                }
+                val tints = listOf(Color(0xFFFEF3C7), Color(0xFFDBE6FF), Color(0xFFDCFCE7), Color(0xFFCCFBF1), Color(0xFFFCE7F3))
+                tiles.chunked(2).forEachIndexed { row, pair ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        pair.forEachIndexed { i, (symbol, text, onClick) ->
+                            val index = row * 2 + i
+                            com.campussphere.app.ui.brand.ActionTile(symbol, text.first, text.second, Modifier.weight(1f),
+                                order = index + 1, tint = tints[index % tints.size],
+                                enabled = !(symbol == "✅" && (state.busy || state.error != null)), onClick = onClick)
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+                homeworkCard?.let { card -> Box(Modifier.appear(6)) { card() } }
+            }
+        } else item {
             TextButton(onClick = back, enabled = !state.busy || dashboard) {
                 Text(if (dashboard) "Sign out" else "Back")
             }
@@ -56,16 +92,6 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
                 }
                 Text("New faculty register in the app with your college code; their requests appear here for approval.",
                     style = MaterialTheme.typography.bodySmall)
-            }
-            if (state.page == FacultyPage.DASHBOARD && onNotifications != null) Button(onClick = onNotifications) {
-                Text("🔔 Notifications" + if (unreadNotifications > 0) " ($unreadNotifications new)" else "")
-            }
-            if (state.page == FacultyPage.DASHBOARD && homeworkCard != null) homeworkCard()
-            if (state.page == FacultyPage.DASHBOARD && onTimetable != null) Button(onClick = onTimetable) { Text("My timetable") }
-            if (state.page == FacultyPage.DASHBOARD && onAnnouncements != null) Button(onClick = onAnnouncements) { Text("Announcements") }
-            if (state.page == FacultyPage.DASHBOARD && onMaterials != null) Button(onClick = onMaterials) { Text("Study materials") }
-            if (state.page == FacultyPage.DASHBOARD && onAttendance != null) {
-                Button(onClick = onAttendance, enabled = !state.busy && state.error == null) { Text("Class attendance") }
             }
         }
         if (state.busy) item {

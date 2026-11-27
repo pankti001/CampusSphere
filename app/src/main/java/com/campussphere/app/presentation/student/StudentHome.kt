@@ -1,6 +1,11 @@
 package com.campussphere.app.presentation.student
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
+import com.campussphere.app.ui.brand.IconBadge
+import com.campussphere.app.ui.brand.appear
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -143,7 +148,7 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Comp
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { ProfileCard(ui.profile) }
         item {
-            Panel("✅ Attendance", ui.attendance, "Open", { open(StudentArea.ATTENDANCE, null) }) { a ->
+            Panel("✅ Attendance", ui.attendance, "Open", { open(StudentArea.ATTENDANCE, null) }, order = 1, tint = Color(0xFFDCFCE7)) { a ->
                 val overall = a.overall
                 Text(overall.percentage?.let { "${it.stripTrailingZeros().toPlainString()}% overall" } ?: "No sessions yet",
                     style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
@@ -160,7 +165,7 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Comp
             }
         }
         item {
-            Panel("🗓 Today", ui.today, "Week", { open(StudentArea.TIMETABLE, null) }) { day ->
+            Panel("🗓 Today", ui.today, "Week", { open(StudentArea.TIMETABLE, null) }, order = 2, tint = Color(0xFFDBE6FF)) { day ->
                 val lessons = day.schedule.slots
                 when {
                     !day.schedule.enrolled -> Text("You are not enrolled in a class yet.")
@@ -173,12 +178,16 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Comp
                 }
             }
         }
-        item { homeworkCard() }
+        item { Box(Modifier.appear(3)) { homeworkCard() } }
         item {
             val activities = upcomingActivities(ui.today.value, ui.homework.value, ui.announcements.value, now)
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("⏭ Upcoming", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Card(Modifier.fillMaxWidth().appear(4), shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        IconBadge("⏭", Color(0xFFEDE9FE)); Text("Upcoming", style = MaterialTheme.typography.titleMedium)
+                    }
                     if (activities.isEmpty()) Text("Nothing coming up.", style = MaterialTheme.typography.bodySmall)
                     activities.forEach {
                         Text("${it.kind}: ${it.title}", fontWeight = FontWeight.Medium)
@@ -188,7 +197,7 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Comp
             }
         }
         item {
-            Panel("💬 Groups and chats", ui.chats, "All chats", { open(StudentArea.CHATS, null) }) { list ->
+            Panel("💬 Groups and chats", ui.chats, "All chats", { open(StudentArea.CHATS, null) }, order = 5, tint = Color(0xFFFEF3C7)) { list ->
                 val unread = list.sumOf { it.unread }
                 Text(if (unread > 0) "$unread unread message" + (if (unread == 1L) "" else "s") else "No unread messages",
                     color = if (unread > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
@@ -204,13 +213,13 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Comp
             }
         }
         item {
-            Panel("📚 Study materials", ui.materials, "Open", { open(StudentArea.MATERIALS, null) }) { list ->
+            Panel("📚 Study materials", ui.materials, "Open", { open(StudentArea.MATERIALS, null) }, order = 6, tint = Color(0xFFCCFBF1)) { list ->
                 if (list.isEmpty()) Text("Nothing shared yet.")
                 list.forEach { Text("• ${it.title} (${it.subject})", maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
         }
         item {
-            Panel("📣 Announcements", ui.announcements, "Open", { open(StudentArea.ANNOUNCEMENTS, null) }) { list ->
+            Panel("📣 Announcements", ui.announcements, "Open", { open(StudentArea.ANNOUNCEMENTS, null) }, order = 7, tint = Color(0xFFFCE7F3)) { list ->
                 if (list.isEmpty()) Text("No announcements.")
                 list.take(3).forEach {
                     Text("• ${it.title}" + if (it.read == false) "  (new)" else "", maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -229,31 +238,35 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Comp
 
 @Composable
 private fun ProfileCard(profile: Section<StudentMe>) {
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val me = profile.value
-            Text(if (me != null) "Hello, ${me.name.substringBefore(' ')}" else "Student dashboard",
-                style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            me?.let {
-                Text(it.college, style = MaterialTheme.typography.titleSmall)
-                Text(if (it.division != null) "${it.program} · ${it.academicYear} · ${it.semester} · ${it.division}"
-                    else "Not enrolled in a class yet", style = MaterialTheme.typography.bodyMedium)
-                Text(it.email, style = MaterialTheme.typography.bodySmall)
-            }
-            if (profile.loading && me == null) LinearProgressIndicator(Modifier.fillMaxWidth())
-            profile.error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    com.campussphere.app.ui.brand.BrandHero(Modifier.appear(0)) {
+        val me = profile.value
+        com.campussphere.app.ui.brand.CampusBrandRow(logoSize = 34.dp, fontSize = 16.sp, onDark = true)
+        Spacer(Modifier.height(10.dp))
+        Text(if (me != null) "Hello, ${me.name.substringBefore(' ')} 👋" else "Student dashboard",
+            style = MaterialTheme.typography.headlineMedium, color = Color.White)
+        me?.let {
+            Text(it.college, style = MaterialTheme.typography.titleSmall, color = com.campussphere.app.ui.theme.Brand.AmberBright)
+            Text(if (it.division != null) "${it.program} · ${it.academicYear} · ${it.semester} · ${it.division}"
+                else "Not enrolled in a class yet", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
+            Text(it.email, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
         }
+        if (profile.loading && me == null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Color.White)
+        profile.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White) }
     }
 }
 
+/** A dashboard section card: a tinted badge with the section's symbol, its title, a link and the content. */
 @Composable
-private fun <T> Panel(title: String, section: Section<T>, action: String, onAction: () -> Unit,
-                      content: @Composable ColumnScope.(T) -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f))
+internal fun <T> Panel(title: String, section: Section<T>, action: String, onAction: () -> Unit, order: Int = 0,
+                       tint: Color = MaterialTheme.colorScheme.primaryContainer,
+                       content: @Composable ColumnScope.(T) -> Unit) {
+    Card(Modifier.fillMaxWidth().appear(order).animateContentSize(), shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IconBadge(title.substringBefore(' '), tint)
+                Text(title.substringAfter(' '), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 TextButton(onAction) { Text(action) }
             }
             val value = section.value

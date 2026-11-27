@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.dp
 import com.campussphere.app.data.remote.api.HomeworkItem
 import com.campussphere.app.data.repository.HOMEWORK_FORMATS
 import com.campussphere.app.data.repository.homeworkSize
+import com.campussphere.app.ui.brand.appear
 
 @Composable
 internal fun HomeworkMessages(error: String?, notice: String?, onDismiss: () -> Unit) {
@@ -51,7 +52,9 @@ internal fun statusColor(status: String): Color = when (status) {
 /** One assignment in a list: what it is, when it is due, and either the class's progress or the student's own state. */
 @Composable
 internal fun HomeworkCard(item: HomeworkItem, enabled: Boolean, onClick: () -> Unit) {
-    Card(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+    Card(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().appear(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(item.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,

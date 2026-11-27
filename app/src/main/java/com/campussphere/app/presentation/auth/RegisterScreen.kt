@@ -42,43 +42,31 @@ fun RegisterScreen(
 
     var errorMessage by remember { mutableStateOf("") }
 
-    val primaryBlue = Color(0xFF2563EB)
+    val primaryBlue = com.campussphere.app.ui.theme.Brand.Blue
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                listOf(com.campussphere.app.ui.theme.Brand.Sky, Color.White)))
+            .safeDrawingPadding()
             .verticalScroll(rememberScrollState())
             .imePadding()
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
-        Spacer(modifier = Modifier.height(35.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // Logo
-        Surface(
-            modifier = Modifier.size(65.dp),
-            shape = RoundedCornerShape(20.dp),
-            color = primaryBlue
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = "C",
-                    fontSize = 40.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-        }
+        com.campussphere.app.ui.brand.CampusLogo(size = 88.dp, animate = true)
 
-        Spacer(modifier = Modifier.height(15.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Create Account",
+            text = "Create account",
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF0F172A)
+            color = com.campussphere.app.ui.theme.Brand.Navy
         )
 
         Spacer(modifier = Modifier.height(6.dp))

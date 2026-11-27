@@ -25,16 +25,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 internal object StudentColors {
-    val Navy = Color(0xFF152047)
-    val Indigo = Color(0xFF3447A6)
-    val Ink = Color(0xFF19264B)
-    val Muted = Color(0xFF52617E)
-    val Canvas = Color(0xFFF3F5FB)
+    val Navy = Color(0xFF1E3A8A)
+    val Indigo = Color(0xFF1D4ED8)
+    val Ink = Color(0xFF0F172A)
+    val Muted = Color(0xFF475569)
+    val Canvas = Color(0xFFF6F8FD)
     val Paper = Color.White
-    val Line = Color(0xFFDCE2F0)
+    val Line = Color(0xFFD5DEEC)
     val FieldOutline = Color(0xFF818DAA)
-    val Tint = Color(0xFFEBEFFE)
-    val OnHero = Color(0xFFDCE4FF)
+    val Tint = Color(0xFFDBE6FF)
+    val OnHero = Color(0xFFDBE6FF)
     val Green = Color(0xFF215C49)
     val GreenTint = Color(0xFFE8F6EF)
     val Amber = Color(0xFF78521A)

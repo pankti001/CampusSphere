@@ -167,7 +167,8 @@ class MainActivity : ComponentActivity() {
                     com.campussphere.app.presentation.auth.CollegeApplicationScreen(registrationApi) { application = false }
                     return@CampusSphereTheme
                 }
-                when (state.route) {
+                // Every change of route (sign in, sign out, register) fades and lifts into place.
+                com.campussphere.app.ui.brand.ScreenSwitch(state.route) { route -> when (route) {
                     AuthRoute.RESTORING -> SplashScreen()
                     AuthRoute.ONBOARDING -> OnboardingScreen(onGetStarted = auth::showLogin)
                     AuthRoute.LOGIN -> LoginScreen(
@@ -203,7 +204,7 @@ class MainActivity : ComponentActivity() {
                             auth::logout)
                     } else if (state.account?.dashboardRole == DashboardRole.COLLEGE_ADMIN) {
                         var academicSection by rememberSaveable { mutableStateOf<AcademicSection?>(null) }
-                        val section = academicSection
+                        com.campussphere.app.ui.brand.ScreenSwitch(academicSection) { section ->
                         if (section == AcademicSection.ASSIGNMENTS) com.campussphere.app.presentation.homework.AdminHomeworkScreen(homework, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.ACCOUNTS) com.campussphere.app.presentation.college.CollegeAccountsScreen(collegeAdmin, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else                         if (section == AcademicSection.TIMETABLES) TimetableAdminScreen(timetables, timetableImports, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
@@ -245,6 +246,7 @@ class MainActivity : ComponentActivity() {
                                 com.campussphere.app.presentation.college.AdminArea.ASSIGNMENTS -> AcademicSection.ASSIGNMENTS
                             }
                         }
+                        }
                     } else if (state.account?.dashboardRole == DashboardRole.FACULTY) {
                         var showAttendance by rememberSaveable { mutableStateOf(false) }
                         var showMaterials by rememberSaveable { mutableStateOf(false) }
@@ -256,18 +258,24 @@ class MainActivity : ComponentActivity() {
                         var showHomework by rememberSaveable { mutableStateOf(false) }
                         var homeworkCreate by rememberSaveable { mutableStateOf(false) }
                         FacultyNotificationEffects(facultyNotices, auth::facultyAuthorization, noticeRefresh) { unreadNotices = it }
-                        if (showHomework) com.campussphere.app.presentation.homework.FacultyHomeworkScreen(homework, auth::facultyAuthorization,
+                        val facultyPage = when {
+                            showHomework -> "homework"; showNotifications -> "notifications"; showTimetable -> "timetable"
+                            showAnnouncements -> "announcements"; showMaterials -> "materials"; showAttendance -> "attendance"
+                            else -> "home"
+                        }
+                        com.campussphere.app.ui.brand.ScreenSwitch(facultyPage) { page -> when (page) {
+                        "homework" -> com.campussphere.app.presentation.homework.FacultyHomeworkScreen(homework, auth::facultyAuthorization,
                             { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, homeworkCreate) { showHomework = false; homeworkCreate = false }
-                        else if (showNotifications) FacultyNotificationsScreen(facultyNotices, auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
+                        "notifications" -> FacultyNotificationsScreen(facultyNotices, auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
                             { showNotifications = false; noticeRefresh++ }) { showNotifications = false; showTimetable = true; noticeRefresh++ }
-                        else if (showTimetable) MyTimetableScreen(timetables, "faculty", auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
+                        "timetable" -> MyTimetableScreen(timetables, "faculty", auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
                             unreadNotices = unreadNotices, onNotices = { showTimetable = false; showNotifications = true }) { showTimetable = false }
-                        else if (showAnnouncements) AnnouncementScreen(announcements, "faculty", auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showAnnouncements = false }
-                        else if (showMaterials) MaterialScreen(materials,"faculty",auth::facultyAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
-                        else if (showAttendance) AttendanceScreen(attendanceRepository, auth::facultyAuthorization, { status ->
+                        "announcements" -> AnnouncementScreen(announcements, "faculty", auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showAnnouncements = false }
+                        "materials" -> MaterialScreen(materials,"faculty",auth::facultyAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
+                        "attendance" -> AttendanceScreen(attendanceRepository, auth::facultyAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, AttendanceMode.FACULTY) { showAttendance = false }
-                        else FacultyScreen(facultyRepository, auth::facultyAuthorization, { status ->
+                        else -> FacultyScreen(facultyRepository, auth::facultyAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, auth::logout, dashboard = true, onMaterials = { showMaterials = true }, onAttendance = { showAttendance = true },
                             onAnnouncements = { showAnnouncements = true }, onTimetable = { showTimetable = true },
@@ -277,6 +285,7 @@ class MainActivity : ComponentActivity() {
                                     { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
                                     { homeworkCreate = false; showHomework = true }) { homeworkCreate = true; showHomework = true }
                             })
+                        } }
                     } else if (state.account?.studentAffiliationEligible == true) {
                         var showRequest by rememberSaveable { mutableStateOf(false) }
                         if (showRequest) StudentScreen(studentRepository, auth::studentAffiliationAuthorization, { status ->
@@ -293,17 +302,23 @@ class MainActivity : ComponentActivity() {
                         val openTab = homeworkTab
                         var chatsOpen by rememberSaveable { mutableStateOf(false) }
                         var chatId by rememberSaveable { mutableStateOf<Long?>(null) }
-                        if (chatsOpen) com.campussphere.app.presentation.chat.ChatScreen(chats, homework, auth::studentAuthorization,
+                        val studentPage = when {
+                            chatsOpen -> "chats"; openTab != null -> "homework"; showTimetable -> "timetable"
+                            showAnnouncements -> "announcements"; showMaterials -> "materials"; showAttendance -> "attendance"
+                            else -> "home"
+                        }
+                        com.campussphere.app.ui.brand.ScreenSwitch(studentPage) { page -> when (page) {
+                        "chats" -> com.campussphere.app.presentation.chat.ChatScreen(chats, homework, auth::studentAuthorization,
                             { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, chatId) { chatsOpen = false; chatId = null }
-                        else if (openTab != null) com.campussphere.app.presentation.homework.StudentHomeworkScreen(homework, auth::studentAuthorization,
-                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, openTab) { homeworkTab = null }
-                        else if (showTimetable) MyTimetableScreen(timetables, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showTimetable = false }
-                        else if (showAnnouncements) AnnouncementScreen(announcements, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showAnnouncements = false }
-                        else if (showMaterials) MaterialScreen(materials,"student",auth::studentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
-                        else if (showAttendance) AttendanceScreen(attendanceRepository, auth::studentAuthorization, { status ->
+                        "homework" -> com.campussphere.app.presentation.homework.StudentHomeworkScreen(homework, auth::studentAuthorization,
+                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, openTab ?: "PENDING") { homeworkTab = null }
+                        "timetable" -> MyTimetableScreen(timetables, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showTimetable = false }
+                        "announcements" -> AnnouncementScreen(announcements, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showAnnouncements = false }
+                        "materials" -> MaterialScreen(materials,"student",auth::studentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
+                        "attendance" -> AttendanceScreen(attendanceRepository, auth::studentAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, AttendanceMode.STUDENT) { showAttendance = false }
-                        else com.campussphere.app.presentation.student.StudentHomeScreen(
+                        else -> com.campussphere.app.presentation.student.StudentHomeScreen(
                             vmFactory = {
                                 com.campussphere.app.presentation.student.StudentHomeViewModel(chats, attendanceRepository, timetables,
                                     homework, materials, announcements, auth::studentAuthorization,
@@ -323,6 +338,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onRefreshAccount = auth::refresh, onLogout = auth::logout)
+                        } }
                     } else SessionScreen(
                         state = state, onRefresh = auth::refresh, onReapply = auth::reapplyForFaculty, onLogout = auth::logout
                     )
@@ -332,7 +348,7 @@ class MainActivity : ComponentActivity() {
                         onReapply = auth::reapplyForFaculty,
                         onLogout = auth::logout
                     )
-                }
+                } }
             }
         }
     }

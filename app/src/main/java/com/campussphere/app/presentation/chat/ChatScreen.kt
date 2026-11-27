@@ -37,6 +37,7 @@ import com.campussphere.app.data.repository.HomeworkRepository
 import com.campussphere.app.data.repository.homeworkPickerTypes
 import com.campussphere.app.data.repository.homeworkSize
 import com.campussphere.app.presentation.homework.homeworkTime
+import com.campussphere.app.ui.brand.appear
 import kotlinx.coroutines.launch
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -137,7 +138,7 @@ fun ChatScreen(repo: ChatRepository, files: HomeworkRepository, auth: () -> Stri
         if (ui.loading || ui.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         ui.progress?.let { p -> LinearProgressIndicator({ p }, Modifier.fillMaxWidth()) }
         Messages(ui.error, ui.notice, vm::clearMessages)
-        when (ui.page) {
+        com.campussphere.app.ui.brand.ScreenSwitch(ui.page, Modifier.weight(1f)) { page -> Column(Modifier.fillMaxSize()) { when (page) {
             ChatPage.LIST -> ConversationList(ui, vm)
             ChatPage.CHAT -> if (current != null) {
                 val list = rememberLazyListState()
@@ -199,7 +200,7 @@ fun ChatScreen(repo: ChatRepository, files: HomeworkRepository, auth: () -> Stri
                     }
                 }
             }
-        }
+        } } }
     }
 }
 
@@ -238,7 +239,9 @@ private fun ColumnScope.ConversationList(ui: ChatUi, vm: ChatViewModel) {
             Text("No chats yet. Your class group appears once you are enrolled in a class.")
         }
         items(ui.conversations, key = { it.id }) { c ->
-            Card(onClick = { vm.open(c) }, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
+            Card(onClick = { vm.open(c) }, enabled = !ui.busy, modifier = Modifier.fillMaxWidth().appear(ui.conversations.indexOf(c)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text((when (c.kind) { "CLASS" -> "🏫 "; "GROUP" -> "👥 "; else -> "👤 " }) + (c.name ?: "Chat"),
@@ -262,8 +265,9 @@ private fun ColumnScope.ConversationList(ui: ChatUi, vm: ChatViewModel) {
 private fun Bubble(m: ChatMessage, kind: String, image: ImageBitmap?, onLongPress: () -> Unit, onShowImage: () -> Unit, onSave: () -> Unit) {
     val mine = m.mine
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-        Surface(color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-            shape = MaterialTheme.shapes.medium,
+        Surface(color = if (mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+            shape = if (mine) androidx.compose.foundation.shape.RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
+                else androidx.compose.foundation.shape.RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
             modifier = Modifier.widthIn(max = 300.dp).combinedClickable(onClick = {}, onLongClick = onLongPress)) {
             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (!mine && kind != "DIRECT") Text(m.sender, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
@@ -279,7 +283,7 @@ private fun Bubble(m: ChatMessage, kind: String, image: ImageBitmap?, onLongPres
                 }
                 if (m.body.isNotEmpty()) Text(m.body)
                 Text(chatTime(m.createdAt) + (readLabel(m, kind)?.let { " · $it" } ?: ""),
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MaterialTheme.typography.labelSmall, color = LocalContentColor.current.copy(alpha = 0.7f))
             }
         }
     }

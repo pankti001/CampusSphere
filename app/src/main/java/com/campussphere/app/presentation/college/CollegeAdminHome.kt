@@ -9,6 +9,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.campussphere.app.ui.brand.appear
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStore
@@ -117,9 +119,19 @@ fun CollegeAdminHome(repo: CollegeAdminRepository, auth: () -> String, lost: (In
     LazyColumn(Modifier.fillMaxSize().safeDrawingPadding(), contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Text(ui.profile?.name ?: "College Admin", style = MaterialTheme.typography.headlineMedium)
-            Text(ui.profile?.let { "College Admin · code ${it.code} · " + (if (it.active) "active" else "inactive") }
-                ?: "College Admin", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            com.campussphere.app.ui.brand.BrandHero(Modifier.appear(0)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    com.campussphere.app.ui.brand.CampusBrandRow(Modifier.weight(1f), logoSize = 34.dp,
+                        fontSize = 16.sp, onDark = true)
+                    TextButton(onLogout, enabled = !signingIn) { Text("Sign out", color = androidx.compose.ui.graphics.Color.White) }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(ui.profile?.name ?: "College Admin", style = MaterialTheme.typography.headlineSmall,
+                    color = androidx.compose.ui.graphics.Color.White)
+                Text(ui.profile?.let { "College Admin · code ${it.code} · " + (if (it.active) "active" else "inactive") }
+                    ?: "College Admin", style = MaterialTheme.typography.bodyMedium,
+                    color = com.campussphere.app.ui.theme.Brand.AmberBright)
+            }
             if (ui.loading || signingIn) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
             (ui.error ?: authError)?.let {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
@@ -192,7 +204,7 @@ fun CollegeAdminHome(repo: CollegeAdminRepository, auth: () -> String, lost: (In
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                             row.forEach { tile ->
                                 Tile(tile, showNumber = tile.area != AdminArea.ACCOUNTS && tile.area != AdminArea.ASSIGNMENTS, loaded = c != null,
-                                    modifier = Modifier.weight(1f)) { open(tile.area) }
+                                    modifier = Modifier.weight(1f).appear(1)) { open(tile.area) }
                             }
                             if (row.size == 1) Spacer(Modifier.weight(1f))
                         }
