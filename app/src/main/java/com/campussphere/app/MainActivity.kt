@@ -113,6 +113,8 @@ class MainActivity : ComponentActivity() {
         val chats = com.campussphere.app.data.repository.ChatRepository(
             RetrofitClient.createService(com.campussphere.app.data.remote.api.ChatApi::class.java),
             RetrofitClient.streamClient, RetrofitClient.baseUrl)
+        val skills = com.campussphere.app.data.repository.SkillRepository(
+            RetrofitClient.createService(com.campussphere.app.data.remote.api.SkillApi::class.java))
         val homework = com.campussphere.app.data.repository.HomeworkRepository(
             RetrofitClient.createService(com.campussphere.app.data.remote.api.HomeworkApi::class.java))
         val announcements = AnnouncementRepository(RetrofitClient.createService(AnnouncementApi::class.java), materials)
@@ -302,14 +304,18 @@ class MainActivity : ComponentActivity() {
                         val openTab = homeworkTab
                         var chatsOpen by rememberSaveable { mutableStateOf(false) }
                         var chatId by rememberSaveable { mutableStateOf<Long?>(null) }
+                        var skillsOpen by rememberSaveable { mutableStateOf(false) }
                         val studentPage = when {
-                            chatsOpen -> "chats"; openTab != null -> "homework"; showTimetable -> "timetable"
+                            chatsOpen -> "chats"; skillsOpen -> "skills"; openTab != null -> "homework"; showTimetable -> "timetable"
                             showAnnouncements -> "announcements"; showMaterials -> "materials"; showAttendance -> "attendance"
                             else -> "home"
                         }
                         com.campussphere.app.ui.brand.ScreenSwitch(studentPage) { page -> when (page) {
                         "chats" -> com.campussphere.app.presentation.chat.ChatScreen(chats, homework, auth::studentAuthorization,
                             { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, chatId) { chatsOpen = false; chatId = null }
+                        // "Message" in Skill Exchange opens the private chat; Back from that chat returns to Skill Exchange.
+                        "skills" -> com.campussphere.app.presentation.skills.SkillScreen(skills, chats, auth::studentAuthorization,
+                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, { id -> chatId = id; chatsOpen = true }) { skillsOpen = false }
                         "homework" -> com.campussphere.app.presentation.homework.StudentHomeworkScreen(homework, auth::studentAuthorization,
                             { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, openTab ?: "PENDING") { homeworkTab = null }
                         "timetable" -> MyTimetableScreen(timetables, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showTimetable = false }
@@ -321,7 +327,7 @@ class MainActivity : ComponentActivity() {
                         else -> com.campussphere.app.presentation.student.StudentHomeScreen(
                             vmFactory = {
                                 com.campussphere.app.presentation.student.StudentHomeViewModel(chats, attendanceRepository, timetables,
-                                    homework, materials, announcements, auth::studentAuthorization,
+                                    homework, materials, announcements, skills, auth::studentAuthorization,
                                     { if (it == 401) auth.expirePlatformSession() else auth.refresh() })
                             },
                             homeworkCard = {
@@ -335,6 +341,7 @@ class MainActivity : ComponentActivity() {
                                     com.campussphere.app.presentation.student.StudentArea.MATERIALS -> showMaterials = true
                                     com.campussphere.app.presentation.student.StudentArea.ANNOUNCEMENTS -> showAnnouncements = true
                                     com.campussphere.app.presentation.student.StudentArea.CHATS -> { chatId = id; chatsOpen = true }
+                                    com.campussphere.app.presentation.student.StudentArea.SKILLS -> skillsOpen = true
                                 }
                             },
                             onRefreshAccount = auth::refresh, onLogout = auth::logout)

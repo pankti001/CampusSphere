@@ -27,6 +27,12 @@ class ScriptedJdbc extends JdbcTemplate {
         return this;
     }
 
+    /** Like answer, but checked before every earlier rule (to override a default answer in one test). */
+    ScriptedJdbc answerFirst(String fragment, Function<List<Object>, Object> result) {
+        rules.add(0, Map.entry(fragment, result));
+        return this;
+    }
+
     private Object reply(String sql, Object[] args) {
         List<Object> values = args == null ? List.of() : Arrays.asList(args);
         calls.add(new Call(sql, values));

@@ -46,6 +46,7 @@ data class StudentHomeUi(
     val materials: Section<List<MaterialItem>> = Section(),
     val announcements: Section<List<AnnouncementItem>> = Section(),
     val chats: Section<List<ChatConversation>> = Section(),
+    val skills: Section<SkillSummary> = Section(),
 )
 
 /** Something coming up, for the "Upcoming" list: a lesson later today, a deadline or an event notice. */
@@ -80,6 +81,7 @@ internal fun failureStatus(e: Throwable): Int? = when (e) {
     is TimetableFailure -> e.status
     is AnnouncementFailure -> e.status
     is MaterialFailure -> e.status
+    is SkillFailure -> e.status
     else -> null
 }
 
@@ -87,7 +89,7 @@ class StudentHomeViewModel(
     private val chats: ChatRepository, private val attendance: AttendanceRepository,
     private val timetable: TimetableRepository, private val homework: HomeworkRepository,
     private val materials: MaterialRepository, private val announcements: AnnouncementRepository,
-    private val auth: () -> String, private val lost: (Int) -> Unit,
+    private val skills: SkillRepository, private val auth: () -> String, private val lost: (Int) -> Unit,
 ) : ViewModel() {
     private val state = MutableStateFlow(StudentHomeUi())
     val ui = state.asStateFlow()
@@ -128,11 +130,12 @@ class StudentHomeViewModel(
             announcements.list(auth(), "student", null, null, null, null, null, 0)
         }
         section({ it.chats }, { copy(chats = it) }, "Chats are not available right now.") { chats.conversations(auth()) }
+        section({ it.skills }, { copy(skills = it) }, "Skill Exchange is not available right now.") { skills.summary(auth()) }
     }
 }
 
 /** Where a dashboard button leads. */
-enum class StudentArea { TIMETABLE, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, CHATS }
+enum class StudentArea { TIMETABLE, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, CHATS, SKILLS }
 
 @Composable
 fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Composable () -> Unit,
@@ -213,13 +216,28 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Comp
             }
         }
         item {
-            Panel("📚 Study materials", ui.materials, "Open", { open(StudentArea.MATERIALS, null) }, order = 6, tint = Color(0xFFCCFBF1)) { list ->
+            Panel("🤝 Skill Exchange", ui.skills, "Open", { open(StudentArea.SKILLS, null) }, order = 6, tint = Color(0xFFE0F2FE)) { s ->
+                Text(when {
+                    s.incomingRequests > 0 -> "${s.incomingRequests} classmate" + (if (s.incomingRequests == 1L) " wants" else "s want") + " to learn from you"
+                    s.myOffers == 0L -> "Learn from classmates in your college, or teach what you know."
+                    else -> "You offer ${s.myOffers} skill" + if (s.myOffers == 1L) "" else "s"
+                }, color = if (s.incomingRequests > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                s.nextSession?.let {
+                    Text("Next: ${it.skill} with ${it.partner.substringBefore(' ')} · " +
+                        com.campussphere.app.data.repository.skillSessionTime(it.startsAt, it.endsAt), style = MaterialTheme.typography.bodySmall)
+                }
+                if (s.unreadNotices > 0) Text("${s.unreadNotices} new notification" + if (s.unreadNotices == 1L) "" else "s",
+                    style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        item {
+            Panel("📚 Study materials", ui.materials, "Open", { open(StudentArea.MATERIALS, null) }, order = 7, tint = Color(0xFFCCFBF1)) { list ->
                 if (list.isEmpty()) Text("Nothing shared yet.")
                 list.forEach { Text("• ${it.title} (${it.subject})", maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
         }
         item {
-            Panel("📣 Announcements", ui.announcements, "Open", { open(StudentArea.ANNOUNCEMENTS, null) }, order = 7, tint = Color(0xFFFCE7F3)) { list ->
+            Panel("📣 Announcements", ui.announcements, "Open", { open(StudentArea.ANNOUNCEMENTS, null) }, order = 8, tint = Color(0xFFFCE7F3)) { list ->
                 if (list.isEmpty()) Text("No announcements.")
                 list.take(3).forEach {
                     Text("• ${it.title}" + if (it.read == false) "  (new)" else "", maxLines = 1, overflow = TextOverflow.Ellipsis,
