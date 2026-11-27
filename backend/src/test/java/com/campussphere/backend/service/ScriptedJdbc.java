@@ -63,6 +63,12 @@ class ScriptedJdbc extends JdbcTemplate {
         return (T) reply(sql, args);
     }
 
+    @Override @SuppressWarnings("unchecked")
+    public <T> List<T> queryForList(String sql, Class<T> type, Object... args) {
+        Object result = reply(sql, args);
+        return result == null ? List.of() : (List<T>) result;
+    }
+
     @Override
     public int update(String sql, Object... args) {
         Object result = reply(sql, args);

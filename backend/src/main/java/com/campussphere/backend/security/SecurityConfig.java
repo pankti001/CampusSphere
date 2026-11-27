@@ -48,6 +48,9 @@ public class SecurityConfig {
                                     ? ApiError.VERIFICATION_REQUIRED : ApiError.ACCESS_DENIED);
                         }))
                 .authorizeHttpRequests(auth -> auth
+                        // The follow-up dispatch of a long-lived response (the student chat stream) belongs to a
+                        // request that already passed the rules below on its first dispatch.
+                        .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/college-registration-requests", "/api/auth/register", "/api/auth/login",
                                 "/api/auth/college-admin-invitations/accept").permitAll()
                         // Spring's error page: without this an unexpected server error (500) reached the app as

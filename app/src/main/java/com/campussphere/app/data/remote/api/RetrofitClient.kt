@@ -31,4 +31,8 @@ object RetrofitClient {
         .build()
 
     fun <T> createService(serviceClass: Class<T>): T = retrofit.create(serviceClass)
+
+    /** For the long-lived chat stream: the server sends a keep-alive line every 20 s, so 60 s of silence means it dropped. */
+    val streamClient: OkHttpClient get() = client.newBuilder().readTimeout(60, TimeUnit.SECONDS).build()
+    val baseUrl: String get() = BuildConfig.API_BASE_URL
 }

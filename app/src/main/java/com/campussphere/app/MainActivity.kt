@@ -110,6 +110,9 @@ class MainActivity : ComponentActivity() {
         val studentRepository = StudentRepository(RetrofitClient.createService(StudentApi::class.java),
             departmentRepository, programApi, periodApi, offeringApi)
         val materials = MaterialRepository(RetrofitClient.createService(MaterialApi::class.java))
+        val chats = com.campussphere.app.data.repository.ChatRepository(
+            RetrofitClient.createService(com.campussphere.app.data.remote.api.ChatApi::class.java),
+            RetrofitClient.streamClient, RetrofitClient.baseUrl)
         val homework = com.campussphere.app.data.repository.HomeworkRepository(
             RetrofitClient.createService(com.campussphere.app.data.remote.api.HomeworkApi::class.java))
         val announcements = AnnouncementRepository(RetrofitClient.createService(AnnouncementApi::class.java), materials)
@@ -288,7 +291,11 @@ class MainActivity : ComponentActivity() {
                         var showTimetable by rememberSaveable { mutableStateOf(false) }
                         var homeworkTab by rememberSaveable { mutableStateOf<String?>(null) }
                         val openTab = homeworkTab
-                        if (openTab != null) com.campussphere.app.presentation.homework.StudentHomeworkScreen(homework, auth::studentAuthorization,
+                        var chatsOpen by rememberSaveable { mutableStateOf(false) }
+                        var chatId by rememberSaveable { mutableStateOf<Long?>(null) }
+                        if (chatsOpen) com.campussphere.app.presentation.chat.ChatScreen(chats, homework, auth::studentAuthorization,
+                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, chatId) { chatsOpen = false; chatId = null }
+                        else if (openTab != null) com.campussphere.app.presentation.homework.StudentHomeworkScreen(homework, auth::studentAuthorization,
                             { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, openTab) { homeworkTab = null }
                         else if (showTimetable) MyTimetableScreen(timetables, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showTimetable = false }
                         else if (showAnnouncements) AnnouncementScreen(announcements, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showAnnouncements = false }
@@ -296,14 +303,26 @@ class MainActivity : ComponentActivity() {
                         else if (showAttendance) AttendanceScreen(attendanceRepository, auth::studentAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, AttendanceMode.STUDENT) { showAttendance = false }
-                        else StudentScreen(studentRepository, auth::studentAuthorization, { status ->
-                            if (status == 401) auth.expirePlatformSession() else auth.refresh()
-                        }, auth::logout, StudentMode.STUDENT, onMaterials = { showMaterials = true }, onAttendance = { showAttendance = true },
-                            onAnnouncements = { showAnnouncements = true }, onTimetable = { showTimetable = true },
+                        else com.campussphere.app.presentation.student.StudentHomeScreen(
+                            vmFactory = {
+                                com.campussphere.app.presentation.student.StudentHomeViewModel(chats, attendanceRepository, timetables,
+                                    homework, materials, announcements, auth::studentAuthorization,
+                                    { if (it == 401) auth.expirePlatformSession() else auth.refresh() })
+                            },
                             homeworkCard = {
                                 com.campussphere.app.presentation.homework.StudentHomeworkCard(homework, auth::studentAuthorization,
                                     { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { homeworkTab = it }
-                            })
+                            },
+                            open = { area, id ->
+                                when (area) {
+                                    com.campussphere.app.presentation.student.StudentArea.TIMETABLE -> showTimetable = true
+                                    com.campussphere.app.presentation.student.StudentArea.ATTENDANCE -> showAttendance = true
+                                    com.campussphere.app.presentation.student.StudentArea.MATERIALS -> showMaterials = true
+                                    com.campussphere.app.presentation.student.StudentArea.ANNOUNCEMENTS -> showAnnouncements = true
+                                    com.campussphere.app.presentation.student.StudentArea.CHATS -> { chatId = id; chatsOpen = true }
+                                }
+                            },
+                            onRefreshAccount = auth::refresh, onLogout = auth::logout)
                     } else SessionScreen(
                         state = state, onRefresh = auth::refresh, onReapply = auth::reapplyForFaculty, onLogout = auth::logout
                     )

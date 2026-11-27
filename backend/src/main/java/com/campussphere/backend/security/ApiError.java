@@ -3,6 +3,13 @@ package com.campussphere.backend.security;
 import org.springframework.http.HttpStatus;
 
 public enum ApiError {
+    CHAT_NOT_FOUND(HttpStatus.NOT_FOUND, "The chat or message was not found."),
+    CHAT_INVALID(HttpStatus.BAD_REQUEST, "Check the message or group details and try again."),
+    CHAT_NOT_ALLOWED(HttpStatus.FORBIDDEN, "You cannot do that in this chat."),
+    CHAT_STATE_CONFLICT(HttpStatus.CONFLICT, "This chat is closed for new messages or changes."),
+    CHAT_BLOCKED(HttpStatus.CONFLICT, "You cannot message this student."),
+    CHAT_LIMIT(HttpStatus.CONFLICT, "The group is full, or you already own the maximum number of groups."),
+    CHAT_FILE_INVALID(HttpStatus.BAD_REQUEST, "Share a PDF, Word, PowerPoint, Excel, text, JPG or PNG file up to 10 MB."),
     ASSIGNMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "The assignment was not found."),
     ASSIGNMENT_INVALID(HttpStatus.BAD_REQUEST, "Check the assignment: title, class, dates, marks, file types and size."),
     ASSIGNMENT_DEADLINE_INVALID(HttpStatus.BAD_REQUEST, "The deadline must be in the future, after the issue date, and can only be moved later once published."),
