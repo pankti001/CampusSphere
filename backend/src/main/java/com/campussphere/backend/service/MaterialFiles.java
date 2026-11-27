@@ -33,7 +33,9 @@ public class MaterialFiles {
         DOCX("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Set.of()),
         PPTX("pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", Set.of()),
         XLSX("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Set.of()),
-        TXT("txt", "text/plain", Set.of("text/plain"));
+        TXT("txt", "text/plain", Set.of("text/plain")),
+        JPG("jpg", "image/jpeg", Set.of("image/jpeg", "image/jpg", "image/pjpeg")),
+        PNG("png", "image/png", Set.of("image/png"));
 
         final String extension;
         final String mime;
@@ -52,7 +54,8 @@ public class MaterialFiles {
         }
 
         static Optional<Format> of(String extension) {
-            return Arrays.stream(values()).filter(f -> f.extension.equals(extension)).findFirst();
+            String wanted = "jpeg".equals(extension) ? "jpg" : extension;
+            return Arrays.stream(values()).filter(f -> f.extension.equals(wanted)).findFirst();
         }
     }
 
@@ -67,18 +70,27 @@ public class MaterialFiles {
         root = Path.of(location).toAbsolutePath().normalize();
     }
 
+    /** The document formats study materials and announcements accept. Images are only for assignments. */
+    static final Set<Format> DOCUMENTS = EnumSet.of(Format.PDF, Format.DOCX, Format.PPTX, Format.XLSX, Format.TXT);
+
     /** Checks name, declared type, size and actual content. Throws MATERIAL_FILE_INVALID when anything is wrong. */
     static Upload inspect(MultipartFile file) throws IOException {
-        if (file == null || file.isEmpty() || file.getSize() > LIMIT) throw invalid();
+        return inspect(file, DOCUMENTS, LIMIT);
+    }
+
+    /** Like {@link #inspect(MultipartFile)}, but only for the given formats and at most {@code limit} bytes. */
+    static Upload inspect(MultipartFile file, Set<Format> allowed, int limit) throws IOException {
+        if (limit < 1 || limit > LIMIT) throw new IllegalArgumentException("limit");
+        if (file == null || file.isEmpty() || file.getSize() > limit) throw invalid();
         String name = cleanName(file.getOriginalFilename());
         int dot = name.lastIndexOf('.');
         Format format = Format.of(name.substring(dot + 1).toLowerCase(Locale.ROOT)).orElseThrow(MaterialFiles::invalid);
-        if (!format.accepts(file.getContentType())) throw invalid();
+        if (!allowed.contains(format) || !format.accepts(file.getContentType())) throw invalid();
         byte[] bytes;
         try (InputStream in = file.getInputStream()) {
-            bytes = in.readNBytes(LIMIT + 1);
+            bytes = in.readNBytes(limit + 1);
         }
-        if (bytes.length == 0 || bytes.length > LIMIT || !contentMatches(format, bytes)) throw invalid();
+        if (bytes.length == 0 || bytes.length > limit || !contentMatches(format, bytes)) throw invalid();
         return new Upload(format, name, bytes, sha256(bytes));
     }
 
@@ -110,11 +122,25 @@ public class MaterialFiles {
             case DOCX -> isOfficePackage(bytes, "word/document.xml");
             case PPTX -> isOfficePackage(bytes, "ppt/presentation.xml");
             case XLSX -> isOfficePackage(bytes, "xl/workbook.xml");
+            // JPEG: start-of-image marker at the start and the end-of-image marker near the end.
+            case JPG -> bytes.length > 4 && (bytes[0] & 0xFF) == 0xFF && (bytes[1] & 0xFF) == 0xD8
+                    && (bytes[2] & 0xFF) == 0xFF && endsWithin(bytes, new byte[]{(byte) 0xFF, (byte) 0xD9}, 1024);
+            // PNG: the fixed eight-byte signature and the IEND chunk at the end.
+            case PNG -> startsWith(bytes, "\u0089PNG\r\n\u001a\n")
+                    && endsWithin(bytes, "IEND".getBytes(StandardCharsets.US_ASCII), 32);
         };
     }
 
+    /** True when {@code marker} occurs within the last {@code window} bytes. */
+    private static boolean endsWithin(byte[] bytes, byte[] marker, int window) {
+        for (int i = Math.max(0, bytes.length - window); i <= bytes.length - marker.length; i++) {
+            if (Arrays.equals(bytes, i, i + marker.length, marker, 0, marker.length)) return true;
+        }
+        return false;
+    }
+
     private static boolean startsWith(byte[] bytes, String prefix) {
-        byte[] head = prefix.getBytes(StandardCharsets.US_ASCII);
+        byte[] head = prefix.getBytes(StandardCharsets.ISO_8859_1);
         return bytes.length >= head.length && Arrays.equals(Arrays.copyOf(bytes, head.length), head);
     }
 

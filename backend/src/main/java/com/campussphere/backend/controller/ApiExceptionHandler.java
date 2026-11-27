@@ -25,7 +25,7 @@ class ApiExceptionHandler {
     }
 
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
-            MethodArgumentTypeMismatchException.class})
+            MethodArgumentTypeMismatchException.class, org.springframework.validation.BindException.class})
     ResponseEntity<ApiError.Body> invalidRequest() {
         return response(ApiError.INVALID_REQUEST);
     }

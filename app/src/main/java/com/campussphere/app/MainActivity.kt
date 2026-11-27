@@ -110,6 +110,8 @@ class MainActivity : ComponentActivity() {
         val studentRepository = StudentRepository(RetrofitClient.createService(StudentApi::class.java),
             departmentRepository, programApi, periodApi, offeringApi)
         val materials = MaterialRepository(RetrofitClient.createService(MaterialApi::class.java))
+        val homework = com.campussphere.app.data.repository.HomeworkRepository(
+            RetrofitClient.createService(com.campussphere.app.data.remote.api.HomeworkApi::class.java))
         val announcements = AnnouncementRepository(RetrofitClient.createService(AnnouncementApi::class.java), materials)
         val timetables = TimetableRepository(RetrofitClient.createService(TimetableApi::class.java))
         val timetableImports = TimetableImportRepository(RetrofitClient.createService(TimetableImportApi::class.java))
@@ -199,7 +201,8 @@ class MainActivity : ComponentActivity() {
                     } else if (state.account?.dashboardRole == DashboardRole.COLLEGE_ADMIN) {
                         var academicSection by rememberSaveable { mutableStateOf<AcademicSection?>(null) }
                         val section = academicSection
-                        if (section == AcademicSection.ACCOUNTS) com.campussphere.app.presentation.college.CollegeAccountsScreen(collegeAdmin, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
+                        if (section == AcademicSection.ASSIGNMENTS) com.campussphere.app.presentation.homework.AdminHomeworkScreen(homework, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
+                        else if (section == AcademicSection.ACCOUNTS) com.campussphere.app.presentation.college.CollegeAccountsScreen(collegeAdmin, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else                         if (section == AcademicSection.TIMETABLES) TimetableAdminScreen(timetables, timetableImports, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.ANNOUNCEMENTS) AnnouncementScreen(announcements, "college", auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.MATERIALS) MaterialScreen(materials,"college",auth::departmentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
@@ -236,6 +239,7 @@ class MainActivity : ComponentActivity() {
                                 com.campussphere.app.presentation.college.AdminArea.ATTENDANCE -> AcademicSection.ATTENDANCE
                                 com.campussphere.app.presentation.college.AdminArea.MATERIALS -> AcademicSection.MATERIALS
                                 com.campussphere.app.presentation.college.AdminArea.ANNOUNCEMENTS -> AcademicSection.ANNOUNCEMENTS
+                                com.campussphere.app.presentation.college.AdminArea.ASSIGNMENTS -> AcademicSection.ASSIGNMENTS
                             }
                         }
                     } else if (state.account?.dashboardRole == DashboardRole.FACULTY) {
@@ -246,8 +250,12 @@ class MainActivity : ComponentActivity() {
                         var showNotifications by rememberSaveable { mutableStateOf(false) }
                         var unreadNotices by rememberSaveable { mutableStateOf(0) }
                         var noticeRefresh by rememberSaveable { mutableStateOf(0) }
+                        var showHomework by rememberSaveable { mutableStateOf(false) }
+                        var homeworkCreate by rememberSaveable { mutableStateOf(false) }
                         FacultyNotificationEffects(facultyNotices, auth::facultyAuthorization, noticeRefresh) { unreadNotices = it }
-                        if (showNotifications) FacultyNotificationsScreen(facultyNotices, auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
+                        if (showHomework) com.campussphere.app.presentation.homework.FacultyHomeworkScreen(homework, auth::facultyAuthorization,
+                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, homeworkCreate) { showHomework = false; homeworkCreate = false }
+                        else if (showNotifications) FacultyNotificationsScreen(facultyNotices, auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
                             { showNotifications = false; noticeRefresh++ }) { showNotifications = false; showTimetable = true; noticeRefresh++ }
                         else if (showTimetable) MyTimetableScreen(timetables, "faculty", auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
                             unreadNotices = unreadNotices, onNotices = { showTimetable = false; showNotifications = true }) { showTimetable = false }
@@ -260,7 +268,12 @@ class MainActivity : ComponentActivity() {
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, auth::logout, dashboard = true, onMaterials = { showMaterials = true }, onAttendance = { showAttendance = true },
                             onAnnouncements = { showAnnouncements = true }, onTimetable = { showTimetable = true },
-                            onNotifications = { showNotifications = true }, unreadNotifications = unreadNotices)
+                            onNotifications = { showNotifications = true }, unreadNotifications = unreadNotices,
+                            homeworkCard = {
+                                com.campussphere.app.presentation.homework.FacultyHomeworkCard(homework, auth::facultyAuthorization,
+                                    { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
+                                    { homeworkCreate = false; showHomework = true }) { homeworkCreate = true; showHomework = true }
+                            })
                     } else if (state.account?.studentAffiliationEligible == true) {
                         var showRequest by rememberSaveable { mutableStateOf(false) }
                         if (showRequest) StudentScreen(studentRepository, auth::studentAffiliationAuthorization, { status ->
@@ -273,7 +286,11 @@ class MainActivity : ComponentActivity() {
                         var showMaterials by rememberSaveable { mutableStateOf(false) }
                         var showAnnouncements by rememberSaveable { mutableStateOf(false) }
                         var showTimetable by rememberSaveable { mutableStateOf(false) }
-                        if (showTimetable) MyTimetableScreen(timetables, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showTimetable = false }
+                        var homeworkTab by rememberSaveable { mutableStateOf<String?>(null) }
+                        val openTab = homeworkTab
+                        if (openTab != null) com.campussphere.app.presentation.homework.StudentHomeworkScreen(homework, auth::studentAuthorization,
+                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, openTab) { homeworkTab = null }
+                        else if (showTimetable) MyTimetableScreen(timetables, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showTimetable = false }
                         else if (showAnnouncements) AnnouncementScreen(announcements, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showAnnouncements = false }
                         else if (showMaterials) MaterialScreen(materials,"student",auth::studentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
                         else if (showAttendance) AttendanceScreen(attendanceRepository, auth::studentAuthorization, { status ->
@@ -282,7 +299,11 @@ class MainActivity : ComponentActivity() {
                         else StudentScreen(studentRepository, auth::studentAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, auth::logout, StudentMode.STUDENT, onMaterials = { showMaterials = true }, onAttendance = { showAttendance = true },
-                            onAnnouncements = { showAnnouncements = true }, onTimetable = { showTimetable = true })
+                            onAnnouncements = { showAnnouncements = true }, onTimetable = { showTimetable = true },
+                            homeworkCard = {
+                                com.campussphere.app.presentation.homework.StudentHomeworkCard(homework, auth::studentAuthorization,
+                                    { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { homeworkTab = it }
+                            })
                     } else SessionScreen(
                         state = state, onRefresh = auth::refresh, onReapply = auth::reapplyForFaculty, onLogout = auth::logout
                     )
@@ -301,7 +322,7 @@ class MainActivity : ComponentActivity() {
         !BuildConfig.DEBUG || Build.VERSION.SDK_INT < 37 ||
             checkSelfPermission(LOCAL_NETWORK_PERMISSION) == PackageManager.PERMISSION_GRANTED
 
-    private enum class AcademicSection { YEARS, DEPARTMENTS, FACULTY, STUDENTS, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, TIMETABLES, ACCOUNTS }
+    private enum class AcademicSection { YEARS, DEPARTMENTS, FACULTY, STUDENTS, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, TIMETABLES, ACCOUNTS, ASSIGNMENTS }
 
     private companion object {
         const val LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"

@@ -3,6 +3,18 @@ package com.campussphere.backend.security;
 import org.springframework.http.HttpStatus;
 
 public enum ApiError {
+    ASSIGNMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "The assignment was not found."),
+    ASSIGNMENT_INVALID(HttpStatus.BAD_REQUEST, "Check the assignment: title, class, dates, marks, file types and size."),
+    ASSIGNMENT_DEADLINE_INVALID(HttpStatus.BAD_REQUEST, "The deadline must be in the future, after the issue date, and can only be moved later once published."),
+    ASSIGNMENT_STATE_CONFLICT(HttpStatus.CONFLICT, "The assignment cannot be changed in its current state. Refresh and try again."),
+    ASSIGNMENT_FILE_INVALID(HttpStatus.BAD_REQUEST, "Attach a PDF, Word, PowerPoint, Excel, text, JPG or PNG file up to 10 MB."),
+    ASSIGNMENT_MARKS_LOCKED(HttpStatus.CONFLICT, "Maximum marks cannot change after work has been marked."),
+    SUBMISSION_NOT_FOUND(HttpStatus.NOT_FOUND, "The submission was not found."),
+    SUBMISSION_FILE_INVALID(HttpStatus.BAD_REQUEST, "Upload a file of an allowed type, within the size limit for this assignment."),
+    SUBMISSION_CLOSED(HttpStatus.CONFLICT, "This assignment is not accepting submissions now."),
+    SUBMISSION_CONFLICT(HttpStatus.CONFLICT, "You have already submitted this assignment and resubmission is not allowed."),
+    EVALUATION_INVALID(HttpStatus.BAD_REQUEST, "Marks must be between 0 and the maximum marks; feedback is limited to 4000 characters."),
+    EVALUATION_STATE_CONFLICT(HttpStatus.CONFLICT, "This submission cannot be marked or returned now. Refresh and try again."),
     MATERIAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Material or assignment unavailable."),
     MATERIAL_FILE_INVALID(HttpStatus.BAD_REQUEST, "Upload a PDF, Word, PowerPoint, Excel or plain-text file up to 10 MB."),
     MATERIAL_DUPLICATE(HttpStatus.CONFLICT, "This file is already shared with this class."),
