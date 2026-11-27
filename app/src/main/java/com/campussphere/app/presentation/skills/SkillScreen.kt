@@ -155,7 +155,7 @@ private fun LazyListScope.market(ui: SkillUi, vm: SkillViewModel) {
     }
     if (ui.marketLoaded && ui.offers.isEmpty()) item {
         EmptyState("No skills found", if (ui.query.isBlank() && ui.category == null && ui.level == null && ui.mode == null)
-            "Nobody in your college offers a skill yet. Be the first: offer something you are good at."
+            "Nobody else in your college offers a skill yet. Offer something you are good at, and classmates can find it here."
             else "Try another search or filter.") { FilledTonalButton(vm::newOffer) { Text("Offer a skill") } }
     }
     items(ui.offers, key = { it.id }) { OfferCard(it, !ui.busy) { vm.openOffer(it.id) } }
