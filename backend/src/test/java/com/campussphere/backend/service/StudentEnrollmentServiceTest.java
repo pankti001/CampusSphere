@@ -100,10 +100,20 @@ class StudentEnrollmentServiceTest {
         assertEquals(List.of(past), service.history(admin, 12));
     }
 
+    @Test void inactiveDepartmentTakesNoNewEnrollments() {
+        allowStudent(2L);
+        when(jdbc.queryForObject(contains("AND is_active"), eq(Boolean.class), eq(10L), eq(2L))).thenReturn(false);
+        assertError(ApiError.DEPARTMENT_INACTIVE, () -> service.enroll(admin, 12, input));
+        verify(jdbc, never()).query(contains("INSERT"), any(RowMapper.class), any(Object[].class));
+    }
+
     private void allowStudent(Long department) {
         when(jdbc.queryForList(contains("FOR UPDATE"), eq(Long.class), eq(10L), eq(12L))).thenReturn(List.of(12L));
         when(jdbc.query(contains("AND u.id = ?"), memberMapper(), eq(10L), eq(12L)))
                 .thenReturn(List.of(new Member(12, "Student Example", "student@example.invalid", department, null)));
+        // The student's department exists and is active (V20), as in normal use.
+        if (department != null) when(jdbc.queryForObject(contains("AND is_active"), eq(Boolean.class), eq(10L), eq(department)))
+                .thenReturn(true);
     }
 
     private static RowMapper<Member> memberMapper() { return any(); }

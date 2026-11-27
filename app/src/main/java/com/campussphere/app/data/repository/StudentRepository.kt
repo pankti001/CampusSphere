@@ -38,7 +38,8 @@ class StudentRepository(
         api.decide(auth, id, StudentDecisionInput(approved, confirmed)).catalogBody(
             "request", "This request has already changed. Refresh the queue.")
 
-    suspend fun departments(auth: String) = departments.list(auth)
+    // Inactive departments take no new students, so they are not offered.
+    suspend fun departments(auth: String) = departments.list(auth).filter { it.active != false }
     suspend fun programs(auth: String, department: Long) = ProgramRepository(programs, department).list(auth)
     suspend fun years(auth: String) = AcademicYearRepository(periods).list(auth)
     suspend fun semesters(auth: String, program: Long, year: Long) = SemesterRepository(periods, program, year).list(auth)

@@ -52,6 +52,8 @@ public enum ApiError {
     PROGRAM_NOT_FOUND(HttpStatus.NOT_FOUND, "The program was not found in this department."),
     PROGRAM_CODE_CONFLICT(HttpStatus.CONFLICT, "This college already uses that program code."),
     DEPARTMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "The department was not found."),
+    DEPARTMENT_INACTIVE(HttpStatus.CONFLICT, "This department is inactive. Reactivate it before adding programs, people or classes to it."),
+    ACADEMIC_DATES_INVALID(HttpStatus.BAD_REQUEST, "Enter both dates or neither: the end after the start, within about a year, and inside the academic year."),
     DEPARTMENT_CODE_CONFLICT(HttpStatus.CONFLICT, "A department already uses that code."),
     REGISTRATION_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "Public registration is available only to Students and Faculty applicants."),
     ACCOUNT_ALREADY_EXISTS(HttpStatus.CONFLICT, "An account already uses the supplied email or phone."),

@@ -18,7 +18,7 @@ import com.campussphere.backend.security.ApiError;
 @Transactional(readOnly = true)
 public class DepartmentService {
     private static final RowMapper<Department> DEPARTMENT = (row, index) ->
-            new Department(row.getLong("id"), row.getString("code"), row.getString("name"));
+            new Department(row.getLong("id"), row.getString("code"), row.getString("name"), row.getBoolean("is_active"));
 
     private final JdbcTemplate jdbc;
 
@@ -29,7 +29,7 @@ public class DepartmentService {
     public List<Department> list(Account account) {
         long collegeId = account.requireCollege(CollegeRole.COLLEGE_ADMIN, null);
         return jdbc.query("""
-                SELECT id, code, name FROM public.departments
+                SELECT id, code, name, is_active FROM public.departments
                 WHERE college_id = ? ORDER BY code
                 """, DEPARTMENT, collegeId);
     }
@@ -37,7 +37,7 @@ public class DepartmentService {
     public Department get(Account account, long id) {
         long collegeId = account.requireCollege(CollegeRole.COLLEGE_ADMIN, null);
         return jdbc.query("""
-                SELECT id, code, name FROM public.departments
+                SELECT id, code, name, is_active FROM public.departments
                 WHERE college_id = ? AND id = ?
                 """, DEPARTMENT, collegeId, id).stream().findFirst()
                 .orElseThrow(ApiError.DEPARTMENT_NOT_FOUND::exception);
@@ -54,7 +54,7 @@ public class DepartmentService {
                 INSERT INTO public.departments (college_id, code, name)
                 VALUES (?, ?, ?)
                 ON CONFLICT (college_id, code) DO NOTHING
-                RETURNING id, code, name
+                RETURNING id, code, name, is_active
                 """, DEPARTMENT, collegeId, input.code().toUpperCase(Locale.ROOT), name)
                 .stream().findFirst().orElseThrow(ApiError.DEPARTMENT_CODE_CONFLICT::exception);
     }
@@ -72,7 +72,7 @@ public class DepartmentService {
                     UPDATE public.departments
                     SET code = COALESCE(?, code), name = COALESCE(?, name)
                     WHERE college_id = ? AND id = ?
-                    RETURNING id, code, name
+                    RETURNING id, code, name, is_active
                     """, DEPARTMENT, code, name, collegeId, id).stream().findFirst()
                     .orElseThrow(ApiError.DEPARTMENT_NOT_FOUND::exception);
         } catch (DuplicateKeyException e) {
@@ -86,5 +86,21 @@ public class DepartmentService {
         return name.strip();
     }
 
-    public record Department(long id, String code, String name) {}
+    /** Deactivates or reactivates a department. Its history stays; an inactive one takes no new programs or people. */
+    @Transactional
+    public Department setActive(Account account, long id, Boolean active) {
+        long collegeId = account.requireCollege(CollegeRole.COLLEGE_ADMIN, null);
+        if (active == null) throw ApiError.INVALID_REQUEST.exception();
+        return jdbc.query("""
+                UPDATE public.departments SET is_active = ? WHERE college_id = ? AND id = ?
+                RETURNING id, code, name, is_active
+                """, DEPARTMENT, active, collegeId, id).stream().findFirst()
+                .orElseThrow(ApiError.DEPARTMENT_NOT_FOUND::exception);
+    }
+
+    public record Department(long id, String code, String name, boolean active) {
+        public Department(long id, String code, String name) {
+            this(id, code, name, true);
+        }
+    }
 }

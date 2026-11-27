@@ -69,6 +69,8 @@ public class StudentEnrollmentService {
         if (Objects.equals(student.departmentId(), departmentId)) return student;
         if (!exists("SELECT EXISTS (SELECT 1 FROM public.departments WHERE college_id = ? AND id = ?)",
                 college, departmentId)) throw ApiError.DEPARTMENT_NOT_FOUND.exception();
+        if (!exists("SELECT EXISTS (SELECT 1 FROM public.departments WHERE college_id = ? AND id = ? AND is_active)",
+                college, departmentId)) throw ApiError.DEPARTMENT_INACTIVE.exception();
         if (exists("""
                 SELECT EXISTS (SELECT 1 FROM public.student_enrollments
                                WHERE college_id = ? AND student_id = ? AND ended_at IS NULL)
@@ -97,6 +99,9 @@ public class StudentEnrollmentService {
     public Enrollment enroll(Account account, long studentId, EnrollmentInput input) {
         long college = college(account, CollegeRole.COLLEGE_ADMIN);
         Member student = member(college, studentId, true);
+        if (Objects.equals(student.departmentId(), input.departmentId()) && !exists(
+                "SELECT EXISTS (SELECT 1 FROM public.departments WHERE college_id = ? AND id = ? AND is_active)",
+                college, input.departmentId())) throw ApiError.DEPARTMENT_INACTIVE.exception();
         boolean valid = Objects.equals(student.departmentId(), input.departmentId()) && exists("""
                 SELECT EXISTS (
                     SELECT 1 FROM public.academic_programs p

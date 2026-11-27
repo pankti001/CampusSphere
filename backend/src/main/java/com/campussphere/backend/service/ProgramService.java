@@ -36,6 +36,9 @@ public class ProgramService {
     @Transactional
     public Program create(Account account, long departmentId, ProgramInput input) {
         long collegeId = requireDepartment(account, departmentId);
+        if (!Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM public.departments WHERE college_id = ? AND id = ? AND is_active)
+                """, Boolean.class, collegeId, departmentId))) throw ApiError.DEPARTMENT_INACTIVE.exception();
         String name = name(input);
         if (input.code() == null || name == null) throw ApiError.INVALID_REQUEST.exception();
         return jdbc.query("""

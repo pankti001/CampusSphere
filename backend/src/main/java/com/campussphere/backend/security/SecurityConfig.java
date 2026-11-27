@@ -73,7 +73,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/college/academic-years", "/api/college/academic-years/*",
                                 "/api/college/programs/*/academic-years/*/semesters",
                                 "/api/college/programs/*/academic-years/*/semesters/*").hasRole("COLLEGE_ADMIN")
-                        .requestMatchers("/api/college/departments", "/api/college/departments/*", "/api/college/departments/*/programs", "/api/college/departments/*/programs/*").hasRole("COLLEGE_ADMIN")
+                        .requestMatchers("/api/college/departments", "/api/college/departments/*", "/api/college/departments/*/active", "/api/college/departments/*/programs", "/api/college/departments/*/programs/*").hasRole("COLLEGE_ADMIN")
                         .requestMatchers("/api/college/students", "/api/college/students/**",
                                 "/api/college/student-affiliation-requests",
                                 "/api/college/student-affiliation-requests/*/decision").hasRole("COLLEGE_ADMIN")

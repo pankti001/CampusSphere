@@ -32,7 +32,8 @@ class FacultyRepository(
         if (!response.isSuccessful) response.catalogBody("assignment")
     }
 
-    suspend fun departments(auth: String): List<AcademicCatalogItem> = departments.list(auth)
+    // Inactive departments take no new faculty, so they are not offered.
+    suspend fun departments(auth: String): List<AcademicCatalogItem> = departments.list(auth).filter { it.active != false }
     suspend fun programs(auth: String, department: Long) = programs.list(auth, department).catalogBody("program")
     suspend fun years(auth: String) = periods.years(auth).catalogBody("academic year")
     suspend fun semesters(auth: String, program: Long, year: Long) =

@@ -17,7 +17,7 @@ fun DepartmentScreen(state: DepartmentState, model: DepartmentViewModel,
                      onPrograms: ((AcademicCatalogItem) -> Unit)? = null, onBack: () -> Unit) {
     AcademicCatalogScreen(state, model, "department", "Departments",
         "No departments have been added to your college yet.",
-        actionLabel = "Manage programs", itemAction = onPrograms, onBack = onBack)
+        actionLabel = "Manage programs", itemAction = onPrograms, canDeactivate = true, onBack = onBack)
 }
 
 @Composable
@@ -33,9 +33,21 @@ internal fun AcademicCatalogScreen(state: DepartmentState, model: AcademicCatalo
     titleText: String, emptyText: String, parentName: String? = null,
     codeLabel: String = "${resource.replaceFirstChar { it.uppercaseChar() }} code",
     actionLabel: String = "", itemAction: ((AcademicCatalogItem) -> Unit)? = null,
-    selectItem: ((AcademicCatalogItem) -> Unit)? = null, codeHint: String? = null, onBack: () -> Unit) {
+    selectItem: ((AcademicCatalogItem) -> Unit)? = null, codeHint: String? = null, withDates: Boolean = false,
+    canDeactivate: Boolean = false, onBack: () -> Unit) {
     var search by remember { mutableStateOf("") }
+    var confirmActive by remember { mutableStateOf<Boolean?>(null) }
     val form = state.form
+    confirmActive?.let { activate ->
+        val item = state.list.orEmpty().firstOrNull { it.id == form?.id }
+        AlertDialog(onDismissRequest = { confirmActive = null },
+            title = { Text(if (activate) "Reactivate this $resource?" else "Deactivate this $resource?") },
+            text = { Text(if (activate) "It can receive new programs, faculty and students again."
+                          else "Its programs, people and history stay. It cannot receive new programs, faculty or students until you reactivate it.") },
+            confirmButton = { TextButton(onClick = { confirmActive = null; item?.let { model.setActive(it, activate) } }) {
+                Text(if (activate) "Reactivate" else "Deactivate") } },
+            dismissButton = { TextButton(onClick = { confirmActive = null }) { Text("Cancel") } })
+    }
     fun back() { if (form != null) model.cancelEdit() else onBack() }
     BackHandler { if (!state.busy) back() }
 
@@ -72,11 +84,38 @@ internal fun AcademicCatalogScreen(state: DepartmentState, model: AcademicCatalo
                         supportingText = { Text(codeHint ?: "Short code, for example CS or BSC-CS. Letters, digits, - and _.") },
                         isError = state.error != null, modifier = Modifier.fillMaxWidth())
                 }
+                if (withDates) item(key = "date-fields") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Dates (optional)", style = MaterialTheme.typography.titleSmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(form.startDate, model::changeStart, label = { Text("Start") },
+                                placeholder = { Text("2026-06-01") }, singleLine = true, enabled = !state.busy,
+                                modifier = Modifier.weight(1f))
+                            OutlinedTextField(form.endDate, model::changeEnd, label = { Text("End") },
+                                placeholder = { Text("2027-05-31") }, singleLine = true, enabled = !state.busy,
+                                modifier = Modifier.weight(1f))
+                        }
+                        Text("YYYY-MM-DD. Give both or leave both empty." +
+                            if (resource == "semester") " A semester must fall inside its academic year's dates." else "",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
                 state.error?.let { item(key = "form-error") { Text(it, color = MaterialTheme.colorScheme.error) } }
                 item(key = "save") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = model::save, enabled = !state.busy) { Text("Save $resource") }
                         TextButton(onClick = model::cancelEdit, enabled = !state.busy) { Text("Cancel") }
+                    }
+                }
+                val current = state.list.orEmpty().firstOrNull { it.id == form.id }
+                if (canDeactivate && current != null) item(key = "status") {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        HorizontalDivider()
+                        if (current.active == false) {
+                            Text("Inactive: kept for history, but no new programs or people can be added.",
+                                style = MaterialTheme.typography.bodySmall)
+                            Button(onClick = { confirmActive = true }, enabled = !state.busy) { Text("Reactivate $resource") }
+                        } else OutlinedButton(onClick = { confirmActive = false }, enabled = !state.busy) { Text("Deactivate $resource") }
                     }
                 }
             } else {
@@ -104,19 +143,26 @@ internal fun AcademicCatalogScreen(state: DepartmentState, model: AcademicCatalo
                             Card(onClick = { if (selectItem == null) model.edit(department) else selectItem(department) },
                                 enabled = !state.busy) {
                                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                                    Text(department.name, style = MaterialTheme.typography.titleMedium)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(department.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f, fill = false))
+                                        if (department.active == false) StatusLabel("Inactive", MaterialTheme.colorScheme.errorContainer)
+                                        if (isCurrent(department.startDate, department.endDate)) StatusLabel("Current", MaterialTheme.colorScheme.primaryContainer)
+                                    }
                                     Text(department.code)
+                                    periodLabel(department.startDate, department.endDate)?.let {
+                                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                     // The next level (programs, semesters, subjects, divisions) is a clear button; tapping the card edits it.
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
                                         itemAction?.let { open ->
                                             FilledTonalButton(onClick = { open(department) }, enabled = !state.busy) {
-                                                Text(actionLabel + " 2192")
+                                                Text("$actionLabel →")
                                             }
                                         }
                                         if (selectItem == null) OutlinedButton(onClick = { model.edit(department) }, enabled = !state.busy) {
                                             Text("Edit")
                                         } else OutlinedButton(onClick = { selectItem(department) }, enabled = !state.busy) {
-                                            Text("Semesters 2192")
+                                            Text("Semesters →")
                                         }
                                     }
                                 }
@@ -127,4 +173,27 @@ internal fun AcademicCatalogScreen(state: DepartmentState, model: AcademicCatalo
             }
         }
     }
+}
+
+@Composable
+private fun StatusLabel(text: String, color: androidx.compose.ui.graphics.Color) {
+    Surface(color = color, shape = MaterialTheme.shapes.small) {
+        Text(text, Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+private val PERIOD_DATE = java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")
+
+/** "1 Jun 2026 – 31 May 2027", or null without dates. */
+internal fun periodLabel(start: String?, end: String?): String? {
+    val from = start?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: return null
+    val to = end?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: return null
+    return "${from.format(PERIOD_DATE)} – ${to.format(PERIOD_DATE)}"
+}
+
+/** True when today falls inside the dates. */
+internal fun isCurrent(start: String?, end: String?, today: java.time.LocalDate = java.time.LocalDate.now()): Boolean {
+    val from = start?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: return false
+    val to = end?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: return false
+    return !today.isBefore(from) && !today.isAfter(to)
 }

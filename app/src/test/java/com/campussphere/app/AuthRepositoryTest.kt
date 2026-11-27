@@ -123,6 +123,8 @@ class AuthRepositoryTest {
             error("Unexpected department creation")
         override suspend fun updateDepartment(authorization: String, id: Long, input: DepartmentInput): Response<DepartmentSummary> =
             error("Unexpected department update")
+        override suspend fun setDepartmentActive(authorization: String, id: Long, body: Map<String, Boolean>): Response<DepartmentSummary> =
+            error("Unexpected department status change")
         var accountStatus: Response<AccountStatusDto> = Response.success(AccountStatusDto(false, emptySet(), null))
         var dashboardResponse: Response<String> = Response.success("Server dashboard")
         val dashboardCalls = mutableListOf<Pair<String, String>>()

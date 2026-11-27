@@ -20,7 +20,22 @@ internal fun validatedDepartment(code: String, name: String): DepartmentInput? {
     return DepartmentInput(cleanCode, cleanName)
 }
 
-data class DepartmentForm(val id: Long? = null, val code: String = "", val name: String = "")
+data class DepartmentForm(val id: Long? = null, val code: String = "", val name: String = "",
+                          val startDate: String = "", val endDate: String = "")
+
+/** Problem with optional period dates (YYYY-MM-DD), or null when they can be saved. */
+fun academicDatesProblem(start: String, end: String): String? {
+    val s = start.trim()
+    val e = end.trim()
+    if (s.isEmpty() && e.isEmpty()) return null
+    if (s.isEmpty() || e.isEmpty()) return "Enter both dates, or leave both empty."
+    val from = runCatching { java.time.LocalDate.parse(s) }.getOrNull()
+    val to = runCatching { java.time.LocalDate.parse(e) }.getOrNull()
+    if (from == null || to == null) return "Use YYYY-MM-DD for dates, for example 2026-06-01."
+    if (!to.isAfter(from)) return "The end date must be after the start date."
+    if (java.time.temporal.ChronoUnit.DAYS.between(from, to) > 400) return "A period can be at most about one year long."
+    return null
+}
 
 data class DepartmentState(
     val list: List<DepartmentSummary>? = null,
@@ -45,6 +60,8 @@ open class AcademicCatalogViewModel(
     // What a new form starts with (for example the next academic year), and whether the code follows the name.
     private val newForm: (List<DepartmentSummary>) -> DepartmentForm = { DepartmentForm() },
     private val suggestCode: Boolean = true,
+    // Academic years and semesters have optional start and end dates.
+    private val withDates: Boolean = false,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(DepartmentState())
     val state = mutableState.asStateFlow()
@@ -58,7 +75,7 @@ open class AcademicCatalogViewModel(
 
     fun edit(department: DepartmentSummary? = null) {
         if (mutableState.value.busy) return
-        val form = department?.let { DepartmentForm(it.id, it.code, it.name) } ?: newForm(mutableState.value.list.orEmpty())
+        val form = department?.let { DepartmentForm(it.id, it.code, it.name, it.startDate.orEmpty(), it.endDate.orEmpty()) } ?: newForm(mutableState.value.list.orEmpty())
         mutableState.value = mutableState.value.copy(form = form, error = null, notice = null)
     }
 
@@ -68,6 +85,18 @@ open class AcademicCatalogViewModel(
     fun changeName(name: String) = changeForm {
         val following = suggestCode && it.id == null && (it.code.isBlank() || it.code == suggestedCode(it.name))
         it.copy(name = name, code = if (following) suggestedCode(name) else it.code)
+    }
+
+    fun changeStart(date: String) = changeForm { it.copy(startDate = date.take(10)) }
+
+    fun changeEnd(date: String) = changeForm { it.copy(endDate = date.take(10)) }
+
+    /** Deactivates or reactivates a department; its programs and history stay. */
+    fun setActive(item: DepartmentSummary, active: Boolean) = request { header ->
+        val saved = repository.setActive(header, item.id, active)
+        mutableState.value = DepartmentState(
+            list = mutableState.value.list.orEmpty().map { if (it.id == saved.id) saved else it }, busy = true,
+            notice = if (active) "${saved.name} is active again." else "${saved.name} is inactive. It keeps its history but takes no new programs or people.")
     }
 
     private fun changeForm(update: (DepartmentForm) -> DepartmentForm) {
@@ -82,10 +111,19 @@ open class AcademicCatalogViewModel(
 
     fun save() {
         val form = mutableState.value.form ?: return
-        val input = validate(form.code, form.name)
-        if (input == null) {
+        val base = validate(form.code, form.name)
+        if (base == null) {
             mutableState.value = mutableState.value.copy(error = validationMessage)
             return
+        }
+        val input = if (!withDates) base else {
+            academicDatesProblem(form.startDate, form.endDate)?.let { problem ->
+                mutableState.value = mutableState.value.copy(error = problem)
+                return
+            }
+            val hadDates = mutableState.value.list.orEmpty().firstOrNull { it.id == form.id }?.startDate != null
+            if (form.startDate.isBlank()) base.copy(clearDates = if (form.id != null && hadDates) true else null)
+            else base.copy(startDate = form.startDate.trim(), endDate = form.endDate.trim())
         }
         request { header ->
             val saved = repository.save(header, form.id, input)

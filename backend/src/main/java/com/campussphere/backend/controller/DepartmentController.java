@@ -37,6 +37,14 @@ public class DepartmentController {
         return departments.get(account, id);
     }
 
+    /** Body {"active": true|false}. */
+    @PutMapping("/{id}/active")
+    public DepartmentService.Department setActive(@AuthenticationPrincipal Account account, @PathVariable long id,
+                                                  @RequestBody java.util.Map<String, Boolean> body) {
+        if (body == null || body.size() != 1 || !body.containsKey("active")) throw com.campussphere.backend.security.ApiError.INVALID_REQUEST.exception();
+        return departments.setActive(account, id, body.get("active"));
+    }
+
     @PatchMapping("/{id}")
     public Department update(@AuthenticationPrincipal Account account, @PathVariable long id,
                              @Valid @RequestBody DepartmentInput input) {

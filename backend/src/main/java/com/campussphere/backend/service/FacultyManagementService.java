@@ -66,6 +66,8 @@ public class FacultyManagementService {
         if (Objects.equals(member.departmentId(), departmentId)) return member;
         if (!exists("SELECT EXISTS (SELECT 1 FROM public.departments WHERE college_id = ? AND id = ?)",
                 college, departmentId)) throw ApiError.DEPARTMENT_NOT_FOUND.exception();
+        if (!exists("SELECT EXISTS (SELECT 1 FROM public.departments WHERE college_id = ? AND id = ? AND is_active)",
+                college, departmentId)) throw ApiError.DEPARTMENT_INACTIVE.exception();
         if (exists("""
                 SELECT EXISTS (SELECT 1 FROM public.faculty_subject_assignments
                                WHERE college_id = ? AND faculty_id = ? AND ended_at IS NULL)
@@ -96,6 +98,8 @@ public class FacultyManagementService {
         if (!Objects.equals(member.departmentId(), input.departmentId())) {
             throw ApiError.FACULTY_ASSIGNMENT_INVALID.exception();
         }
+        if (!exists("SELECT EXISTS (SELECT 1 FROM public.departments WHERE college_id = ? AND id = ? AND is_active)",
+                college, input.departmentId())) throw ApiError.DEPARTMENT_INACTIVE.exception();
         boolean matchingHierarchy = exists("""
                 SELECT EXISTS (
                     SELECT 1 FROM public.academic_programs p

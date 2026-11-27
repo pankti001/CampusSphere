@@ -47,7 +47,7 @@ fun CollegeAcademicStructure(
             val state by model.state.collectAsStateWithLifecycle()
             AcademicCatalogScreen(state, model, "academic year", "Academic years",
                 "No academic years have been added yet. Tap Add academic year to create one, for example 2026-2027.",
-                codeLabel = "Academic year", codeHint = YEAR_HINT, onBack = onBack)
+                codeLabel = "Academic year", codeHint = YEAR_HINT, withDates = true, onBack = onBack)
         }
         program != null && divisionYear != null -> {
             val model = scopedCatalog(program.id to divisionYear.id) {
@@ -76,12 +76,12 @@ fun CollegeAcademicStructure(
                 AcademicCatalogViewModel(SemesterRepository(periodApi, program.id, year.id),
                     authorization, accessLost, "Semester", ::validatedSemester,
                     "Enter a semester number from 1 to 99, for example 3. The name is optional.",
-                    compareBy { it.code.toIntOrNull() ?: Int.MAX_VALUE }, ::suggestedSemester, suggestCode = false)
+                    compareBy { it.code.toIntOrNull() ?: Int.MAX_VALUE }, ::suggestedSemester, suggestCode = false, withDates = true)
             }
             val state by model.state.collectAsStateWithLifecycle()
             AcademicCatalogScreen(state, model, "semester", "Semesters",
                 "No semesters have been added for this program and year.",
-                "${program.name} · ${year.code}", codeLabel = "Semester number", codeHint = "1 to 99. The name is filled in for you.",
+                "${program.name} · ${year.code}", codeLabel = "Semester number", codeHint = "1 to 99. The name is filled in for you.", withDates = true,
                 actionLabel = "Manage subjects", itemAction = { selectedSemester = it },
                 onBack = { selectedYear = null })
         }
@@ -91,7 +91,7 @@ fun CollegeAcademicStructure(
             AcademicCatalogScreen(state, model, "academic year", "Select academic year",
                 "No academic years yet. Tap Add academic year, then choose it here.",
                 program.name + " · tap a year for its semesters", codeLabel = "Academic year", actionLabel = "Manage divisions",
-                itemAction = { selectedDivisionYear = it }, selectItem = { selectedYear = it }, codeHint = YEAR_HINT,
+                itemAction = { selectedDivisionYear = it }, selectItem = { selectedYear = it }, codeHint = YEAR_HINT, withDates = true,
                 onBack = { selectedProgram = null })
         }
         department != null -> {
@@ -116,7 +116,7 @@ private val ItemSaver = androidx.compose.runtime.saveable.listSaver<AcademicCata
 private fun yearModel(api: AcademicPeriodApi, authorization: () -> String, accessLost: (Int) -> Unit) =
     AcademicCatalogViewModel(AcademicYearRepository(api), authorization, accessLost, "Academic year",
         ::validatedAcademicYear, "Enter two consecutive years, for example 2026-2027 or 2026-27. The name is optional.",
-        compareBy<DepartmentSummary> { it.code }.reversed(), ::suggestedAcademicYear, suggestCode = false)
+        compareBy<DepartmentSummary> { it.code }.reversed(), ::suggestedAcademicYear, suggestCode = false, withDates = true)
 
 private const val YEAR_HINT = "For example 2026-2027 (2026-27 also works)."
 

@@ -93,11 +93,22 @@ class FacultyManagementServiceTest {
         verify(jdbc).update(contains("SET ended_at"), eq(10L), eq(12L), eq(99L));
     }
 
+    @Test void inactiveDepartmentTakesNoNewAssignments() {
+        allowMember(2L);
+        when(jdbc.queryForObject(contains("AND is_active"), eq(Boolean.class), eq(10L), eq(2L))).thenReturn(false);
+        assertError(ApiError.DEPARTMENT_INACTIVE, () -> service.assign(admin, 12, input));
+        verify(jdbc, never()).query(contains("INSERT"), any(RowMapper.class),
+                anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
+    }
+
     private void allowMember(Long department) {
         when(jdbc.queryForList(contains("FOR UPDATE"), eq(Long.class), eq(10L), eq(12L)))
                 .thenReturn(List.of(12L));
         when(jdbc.query(contains("AND u.id = ?"), memberMapper(), eq(10L), eq(12L)))
                 .thenReturn(List.of(new Member(12, "Faculty Example", "faculty@example.invalid", department, null)));
+        // The member's department exists and is active (V20), as in normal use.
+        if (department != null) when(jdbc.queryForObject(contains("AND is_active"), eq(Boolean.class), eq(10L), eq(department)))
+                .thenReturn(true);
     }
 
     private static RowMapper<Member> memberMapper() { return any(); }

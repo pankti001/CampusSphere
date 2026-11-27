@@ -14,6 +14,7 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.PATCH
+import retrofit2.http.PUT
 import retrofit2.http.Path
 
 interface AuthApi {
@@ -41,6 +42,10 @@ interface AuthApi {
     @POST("api/college/departments")
     suspend fun createDepartment(@Header("Authorization") authorization: String,
         @Body input: DepartmentInput): Response<DepartmentSummary>
+
+    @PUT("api/college/departments/{id}/active")
+    suspend fun setDepartmentActive(@Header("Authorization") authorization: String, @Path("id") id: Long,
+        @Body body: Map<String, Boolean>): Response<com.campussphere.app.data.remote.dto.AcademicCatalogItem>
 
     @PATCH("api/college/departments/{id}")
     suspend fun updateDepartment(@Header("Authorization") authorization: String, @Path("id") id: Long,
