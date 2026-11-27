@@ -33,7 +33,7 @@ internal fun AcademicCatalogScreen(state: DepartmentState, model: AcademicCatalo
     titleText: String, emptyText: String, parentName: String? = null,
     codeLabel: String = "${resource.replaceFirstChar { it.uppercaseChar() }} code",
     actionLabel: String = "", itemAction: ((AcademicCatalogItem) -> Unit)? = null,
-    selectItem: ((AcademicCatalogItem) -> Unit)? = null, onBack: () -> Unit) {
+    selectItem: ((AcademicCatalogItem) -> Unit)? = null, codeHint: String? = null, onBack: () -> Unit) {
     var search by remember { mutableStateOf("") }
     val form = state.form
     fun back() { if (form != null) model.cancelEdit() else onBack() }
@@ -58,20 +58,27 @@ internal fun AcademicCatalogScreen(state: DepartmentState, model: AcademicCatalo
             if (state.busy) item(key = "loading") {
                 CircularProgressIndicator(Modifier.semantics { contentDescription = "Loading $titleText" })
             }
-            state.error?.let { item(key = "error") { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (form == null) state.error?.let { item(key = "error") { Text(it, color = MaterialTheme.colorScheme.error) } }
             state.notice?.let { item(key = "notice") { Text(it, color = MaterialTheme.colorScheme.primary) } }
             if (form != null) {
-                item(key = "code-field") {
-                    OutlinedTextField(form.code, model::changeCode,
-                        label = { Text(codeLabel) }, singleLine = true, enabled = !state.busy,
-                        modifier = Modifier.fillMaxWidth())
-                }
                 item(key = "name-field") {
                     OutlinedTextField(form.name, model::changeName,
                         label = { Text("${resource.replaceFirstChar { it.uppercaseChar() }} name") }, singleLine = true, enabled = !state.busy,
                         modifier = Modifier.fillMaxWidth())
                 }
-                item(key = "save") { Button(onClick = model::save, enabled = !state.busy) { Text("Save $resource") } }
+                item(key = "code-field") {
+                    OutlinedTextField(form.code, model::changeCode,
+                        label = { Text(codeLabel) }, singleLine = true, enabled = !state.busy,
+                        supportingText = { Text(codeHint ?: "Short code, for example CS or BSC-CS. Letters, digits, - and _.") },
+                        isError = state.error != null, modifier = Modifier.fillMaxWidth())
+                }
+                state.error?.let { item(key = "form-error") { Text(it, color = MaterialTheme.colorScheme.error) } }
+                item(key = "save") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = model::save, enabled = !state.busy) { Text("Save $resource") }
+                        TextButton(onClick = model::cancelEdit, enabled = !state.busy) { Text("Cancel") }
+                    }
+                }
             } else {
                 val departments = state.list
                 if (departments == null && !state.busy) {
@@ -80,9 +87,7 @@ internal fun AcademicCatalogScreen(state: DepartmentState, model: AcademicCatalo
                 if (departments != null) {
                     item(key = "list-actions") {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (selectItem == null) {
-                                Button(onClick = { model.edit() }, enabled = !state.busy) { Text("Add $resource") }
-                            }
+                            Button(onClick = { model.edit() }, enabled = !state.busy) { Text("Add $resource") }
                             OutlinedButton(onClick = model::refresh, enabled = !state.busy) { Text("Refresh") }
                         }
                     }
@@ -101,9 +106,17 @@ internal fun AcademicCatalogScreen(state: DepartmentState, model: AcademicCatalo
                                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
                                     Text(department.name, style = MaterialTheme.typography.titleMedium)
                                     Text(department.code)
-                                    itemAction?.let { open ->
-                                        TextButton(onClick = { open(department) }, enabled = !state.busy) {
-                                            Text(actionLabel)
+                                    // The next level (programs, semesters, subjects, divisions) is a clear button; tapping the card edits it.
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                                        itemAction?.let { open ->
+                                            FilledTonalButton(onClick = { open(department) }, enabled = !state.busy) {
+                                                Text(actionLabel + " 2192")
+                                            }
+                                        }
+                                        if (selectItem == null) OutlinedButton(onClick = { model.edit(department) }, enabled = !state.busy) {
+                                            Text("Edit")
+                                        } else OutlinedButton(onClick = { selectItem(department) }, enabled = !state.busy) {
+                                            Text("Semesters 2192")
                                         }
                                     }
                                 }

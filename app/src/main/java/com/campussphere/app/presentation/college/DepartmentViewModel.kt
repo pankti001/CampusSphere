@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 internal fun validatedDepartment(code: String, name: String): DepartmentInput? {
-    val cleanCode = code.trim()
+    val cleanCode = normalizedCode(code)
     val cleanName = name.trim()
     if (!cleanCode.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,29}")) ||
         cleanName.isEmpty() || cleanName.length > 150) return null
@@ -41,7 +41,10 @@ open class AcademicCatalogViewModel(
     private val validate: (String, String) -> DepartmentInput? = ::validatedDepartment,
     private val validationMessage: String =
         "Enter a name up to 150 characters and a code of 1–30 letters, digits, underscores or hyphens starting with a letter or digit.",
-    private val order: Comparator<DepartmentSummary> = compareBy { it.code }
+    private val order: Comparator<DepartmentSummary> = compareBy { it.code },
+    // What a new form starts with (for example the next academic year), and whether the code follows the name.
+    private val newForm: (List<DepartmentSummary>) -> DepartmentForm = { DepartmentForm() },
+    private val suggestCode: Boolean = true,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(DepartmentState())
     val state = mutableState.asStateFlow()
@@ -55,13 +58,17 @@ open class AcademicCatalogViewModel(
 
     fun edit(department: DepartmentSummary? = null) {
         if (mutableState.value.busy) return
-        val form = department?.let { DepartmentForm(it.id, it.code, it.name) } ?: DepartmentForm()
+        val form = department?.let { DepartmentForm(it.id, it.code, it.name) } ?: newForm(mutableState.value.list.orEmpty())
         mutableState.value = mutableState.value.copy(form = form, error = null, notice = null)
     }
 
     fun changeCode(code: String) = changeForm { it.copy(code = code) }
 
-    fun changeName(name: String) = changeForm { it.copy(name = name) }
+    /** A new item's code follows its name until the code is typed by hand. */
+    fun changeName(name: String) = changeForm {
+        val following = suggestCode && it.id == null && (it.code.isBlank() || it.code == suggestedCode(it.name))
+        it.copy(name = name, code = if (following) suggestedCode(name) else it.code)
+    }
 
     private fun changeForm(update: (DepartmentForm) -> DepartmentForm) {
         val currentState = mutableState.value

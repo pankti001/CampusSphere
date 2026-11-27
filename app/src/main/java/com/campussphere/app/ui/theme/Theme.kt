@@ -1,5 +1,8 @@
 package com.campussphere.app.ui.theme
 
+import androidx.compose.ui.Modifier
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.fillMaxSize
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -50,9 +53,12 @@ fun CampusSphereTheme(
         else -> LightColorScheme
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    MaterialTheme(colorScheme = colorScheme, typography = Typography) {
+        // Paint the theme background behind every screen, so text and cards match in both light and dark mode.
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = colorScheme.background,
+            content = content
+        )
+    }
 }

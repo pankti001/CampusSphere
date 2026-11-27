@@ -50,6 +50,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/college-registration-requests", "/api/auth/register", "/api/auth/login",
                                 "/api/auth/college-admin-invitations/accept").permitAll()
+                        // Spring's error page: without this an unexpected server error (500) reached the app as
+                        // 401, which the app treats as an expired session and signs the user out.
+                        .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/platform/college-registration-requests", "/api/platform/college-registration-requests/**", "/api/platform/overview", "/api/platform/colleges", "/api/platform/colleges/**").hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/student/**").hasRole("STUDENT")
                         .requestMatchers("/api/faculty/**").hasRole("FACULTY")
@@ -59,6 +62,8 @@ public class SecurityConfig {
                                 "/api/college/faculty-requests/*/decision").hasRole("COLLEGE_ADMIN")
                         .requestMatchers("/api/college/materials", "/api/college/materials/**", "/api/college/attendance/**").hasRole("COLLEGE_ADMIN")
                         .requestMatchers("/api/college/announcements", "/api/college/announcements/**").hasRole("COLLEGE_ADMIN")
+                        .requestMatchers("/api/college/profile", "/api/college/overview",
+                                "/api/college/accounts/**").hasRole("COLLEGE_ADMIN")
                         .requestMatchers("/api/college/timetables", "/api/college/timetables/**",
                                 "/api/college/classrooms", "/api/college/classrooms/**").hasRole("COLLEGE_ADMIN")
                         .requestMatchers("/api/college/programs/*/academic-years/*/divisions",

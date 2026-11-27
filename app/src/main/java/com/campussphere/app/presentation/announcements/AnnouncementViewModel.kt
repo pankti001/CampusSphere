@@ -187,6 +187,10 @@ class AnnouncementViewModel(
         }
         action {
             var saved = current.editingId?.let { repo.update(auth(), area, it, input) } ?: repo.create(auth(), area, input)
+            // Remember the saved draft at once: if the attachment upload then fails, saving again updates this
+            // draft instead of creating a second one.
+            replace(saved)
+            state.update { it.copy(editingId = saved.id) }
             state.value.file?.let { file ->
                 state.update { it.copy(uploadProgress = 0f) }
                 try {
@@ -196,6 +200,7 @@ class AnnouncementViewModel(
                 }
             }
             replace(saved)
+            refreshOverview()
             state.update { it.copy(page = AnnouncementPage.PREVIEW, editingId = saved.id, file = null,
                 notice = if (current.editingId == null) "Saved as a draft." else "Changes saved.") }
         }
@@ -207,6 +212,7 @@ class AnnouncementViewModel(
         val at = scheduleInstant(scheduleText).getOrElse { e -> state.update { it.copy(error = e.message) }; return }
         action {
             val result = repo.publish(auth(), area, id, at)
+            refreshOverview()
             replace(result)
             state.update { it.copy(page = AnnouncementPage.DETAIL,
                 notice = if (result.status == "SCHEDULED") "Announcement scheduled." else "Announcement published.") }
@@ -215,13 +221,14 @@ class AnnouncementViewModel(
 
     fun archive() {
         val id = state.value.selected?.id ?: return
-        action { replace(repo.archive(auth(), area, id)); state.update { it.copy(notice = "Announcement archived.") } }
+        action { replace(repo.archive(auth(), area, id)); refreshOverview(); state.update { it.copy(notice = "Announcement archived.") } }
     }
 
     fun delete() {
         val id = state.value.selected?.id ?: return
         action {
             repo.delete(auth(), area, id)
+            refreshOverview()
             state.update { it.copy(items = it.items.filterNot { a -> a.id == id }, selected = null,
                 page = AnnouncementPage.LIST, notice = "Draft deleted.") }
         }
@@ -233,6 +240,11 @@ class AnnouncementViewModel(
     }
 
     fun run(success: String?, block: suspend () -> Unit) = action(success, block)
+
+    /** The admin status counts follow every create, publish, archive and delete. */
+    private suspend fun refreshOverview() {
+        if (area == "college") runCatching { repo.overview(auth()) }.getOrNull()?.let { o -> state.update { it.copy(overview = o) } }
+    }
 
     private fun replace(item: AnnouncementItem) = state.update { s ->
         s.copy(items = if (s.items.any { it.id == item.id }) s.items.map { if (it.id == item.id) item else it } else listOf(item) + s.items,

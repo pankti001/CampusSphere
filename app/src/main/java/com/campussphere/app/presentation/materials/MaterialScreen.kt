@@ -337,7 +337,7 @@ private fun MaterialDetail(item: MaterialItem, area: String, busy: Boolean, hasD
         }
         if (area == "college") {
             Text("Activity", style = MaterialTheme.typography.titleMedium)
-            if (events.isEmpty()) Text("No activity loaded yet.", style = MaterialTheme.typography.bodySmall)
+            if (events.isEmpty()) Text("No activity recorded yet.", style = MaterialTheme.typography.bodySmall)
             events.forEach { e ->
                 Text("${e.action} · ${e.actor} · ${materialTime(e.time)}" + (e.note?.let { " · $it" } ?: ""),
                     style = MaterialTheme.typography.bodySmall)

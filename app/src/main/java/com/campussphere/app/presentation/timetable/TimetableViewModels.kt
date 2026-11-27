@@ -328,7 +328,8 @@ class TimetableAdminViewModel(
             lost(failure.status)
             return
         }
-        if (failure?.status == 404) {
+        // Only a vanished timetable leaves the editor; a missing classroom or period just shows its message.
+        if (failure?.status == 404 && (failure.code == null || failure.code == "TIMETABLE_NOT_FOUND")) {
             state.update { it.copy(page = if (it.choice.complete) AdminPage.VERSIONS else AdminPage.SCOPE, detail = null, options = null) }
         }
         state.update {

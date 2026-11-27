@@ -75,6 +75,8 @@ class MaterialViewModel(
                 items = repo.list(auth(), area)
                 if (area == "faculty") assignments = repo.assignments(auth())
                 loaded = true
+                // The server sends at most the newest 200; say so instead of hiding older materials silently.
+                if (items.size >= 200) notice = "Showing the newest 200 materials. Use search and filters to find older ones."
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

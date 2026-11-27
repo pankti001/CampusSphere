@@ -118,7 +118,9 @@ public class FacultyNotifications {
     static String[] text(Change c, Context ctx, LocalDate startsOn) {
         var l = c.lesson();
         String subject = l.subject() + " (" + l.subjectCode() + ")";
-        String cls = ctx.program() + " · " + ctx.semester() + " · Division " + ctx.division() + " · " + ctx.academicYear();
+        // A short division code reads "Division A"; a name such as "Class A" is shown as it is.
+        String division = ctx.division().length() <= 3 ? "Division " + ctx.division() : ctx.division();
+        String cls = ctx.program() + " · " + ctx.semester() + " · " + division + " · " + ctx.academicYear();
         String from = " · from " + startsOn.format(DATE);
         String[] text = switch (c.kind()) {
             case "ASSIGNED" -> new String[]{"New class: " + subject, slot(l) + " · " + cls + " · " + room(l) + from};

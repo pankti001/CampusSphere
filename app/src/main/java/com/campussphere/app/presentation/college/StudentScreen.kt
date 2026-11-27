@@ -95,7 +95,7 @@ fun StudentScreen(repository: StudentRepository, authorization: () -> String, on
                     StudentPage.DIRECTORY -> if (!state.busy) {
                         item {
                             WorkspaceItem {
-                                StudentTile("Affiliation requests", "Review student admission requests.",
+                                StudentTile("Approve student requests", "Students register in the app, then request to join with your college code. Review and approve them here.",
                                     StudentMark.List, onClick = model::queue)
                             }
                         }

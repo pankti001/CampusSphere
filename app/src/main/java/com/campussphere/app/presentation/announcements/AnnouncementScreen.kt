@@ -6,6 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -119,7 +121,7 @@ fun AnnouncementScreen(repo: AnnouncementRepository, area: String, auth: () -> S
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         ui.overview?.let { o ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                                 listOf("DRAFT" to o.drafts, "SCHEDULED" to o.scheduled, "PUBLISHED" to o.published,
                                     "EXPIRED" to o.expired, "ARCHIVED" to o.archived).forEach { (status, count) ->
                                     FilterChip(selected = ui.filter.status == status, onClick = {
@@ -138,7 +140,7 @@ fun AnnouncementScreen(repo: AnnouncementRepository, area: String, auth: () -> S
                             if (area == "faculty" && ui.loaded && ui.targets.isEmpty())
                                 Text("You have no active classes, so you cannot post announcements yet.")
                         }
-                        OutlinedTextField(search, { search = it.take(100) }, label = { Text("Search announcements") },
+                        OutlinedTextField(search, { search = it.take(100); if (it.isBlank() && ui.filter.q.isNotEmpty()) vm.setFilter(ui.filter.copy(q = "")) }, label = { Text("Search announcements") },
                             singleLine = true, modifier = Modifier.fillMaxWidth(),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = { vm.setFilter(ui.filter.copy(q = search)) }))

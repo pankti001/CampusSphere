@@ -50,9 +50,11 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
             }
             Text(state.page.title, style = MaterialTheme.typography.headlineMedium)
             if (state.page == FacultyPage.DIRECTORY) {
-                OutlinedButton(onClick = model::pendingRequests, enabled = !state.busy) {
-                    Text("Review access requests")
+                Button(onClick = model::pendingRequests, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) {
+                    Text("Approve faculty requests")
                 }
+                Text("New faculty register in the app with your college code; their requests appear here for approval.",
+                    style = MaterialTheme.typography.bodySmall)
             }
             if (state.page == FacultyPage.DASHBOARD && onNotifications != null) Button(onClick = onNotifications) {
                 Text("🔔 Notifications" + if (unreadNotifications > 0) " ($unreadNotifications new)" else "")
@@ -177,7 +179,7 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
             confirmButton = {
                 TextButton(enabled = (confirmed || rejecting) && !state.busy, onClick = {
                     reviewing = null
-                    model.decide(request, approved = !rejecting, employmentConfirmed = confirmed)
+                    model.decide(request, approved = !rejecting, employmentConfirmed = confirmed && !rejecting)
                 }) { Text(if (rejecting) "Reject" else "Approve") }
             },
             dismissButton = { TextButton(onClick = { reviewing = null }) { Text("Cancel") } }

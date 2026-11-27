@@ -146,9 +146,10 @@ fun PlatformScreen(repository: PlatformRepository, authorization: () -> String, 
                                     }
                                     Metric("Pending invitations", stats.pendingInvitations)
                                     if (stats.totalColleges == 0L) Text("No colleges have been added yet.")
-                                    PrimaryAction("College management") { navigate(Page.COLLEGES) }
-                                    OutlinedButton(onClick = { navigate(Page.SELECT_COLLEGE) }) { Text("College Admin invitations") }
                                 }
+                                // Navigation stays available even when the statistics fail to load.
+                                PrimaryAction("College management") { navigate(Page.COLLEGES) }
+                                OutlinedButton(onClick = { navigate(Page.SELECT_COLLEGE) }) { Text("College Admin invitations") }
                             }
                             Page.REQUESTS -> key(cursor) {
                                 Heading("Pending College Requests","Review applications from college representatives.")

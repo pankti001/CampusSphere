@@ -306,7 +306,7 @@ public class Timetables {
     public List<ScopeOption> scopes(Account account) {
         long college = account.requireCollege(CollegeRole.COLLEGE_ADMIN, null);
         return jdbc.query("""
-                SELECT sem.id semester_id, v.id division_id, y.id year_id, y.code year, d.id department_id,
+                SELECT sem.id semester_id, v.id division_id, y.id year_id, y.code academic_year, d.id department_id,
                        d.name department, p.id program_id, p.name program, sem.semester_number, sem.name semester,
                        v.name division
                 FROM public.academic_semesters sem
@@ -319,7 +319,7 @@ public class Timetables {
                 ORDER BY y.code DESC, d.name, p.name, sem.semester_number, v.code, v.id
                 LIMIT 2000
                 """, (r, i) -> new ScopeOption(r.getLong("semester_id"), r.getLong("division_id"), r.getLong("year_id"),
-                r.getString("year"), r.getLong("department_id"), r.getString("department"), r.getLong("program_id"),
+                r.getString("academic_year"), r.getLong("department_id"), r.getString("department"), r.getLong("program_id"),
                 r.getString("program"), r.getInt("semester_number"), r.getString("semester"), r.getString("division")),
                 college);
     }

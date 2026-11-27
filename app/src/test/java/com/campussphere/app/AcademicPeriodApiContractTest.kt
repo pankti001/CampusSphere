@@ -22,12 +22,19 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 class AcademicPeriodApiContractTest {
     @Test fun rejectsInvalidRangesAndSemesterNumbers() {
-        for (range in listOf("2027-2026", "2026-2028", "0001-0002", "2026/2027")) {
+        for (range in listOf("2027-2026", "2026-2028", "0001-0002", "abcd", "2026-2027-2028", "")) {
             assertNull(validatedAcademicYear(range, "Example"))
         }
-        assertEquals("2026-2027", validatedAcademicYear(" 2026-2027 ", "Example")?.code)
-        for (number in listOf("0", "01", "100", "-1", "１")) assertNull(validatedSemester(number, "Example"))
-        assertNull(validatedSemester("1", " "))
+        // Common ways of writing a year are accepted and stored as YYYY-YYYY.
+        for (range in listOf(" 2026-2027 ", "2026/2027", "2026-27", "2026 2027", "2026")) {
+            assertEquals("2026-2027", validatedAcademicYear(range, "Example")?.code)
+        }
+        assertEquals("2099-2100", validatedAcademicYear("2099-00", "Example")?.code)
+        assertEquals("Academic Year 2026-27", validatedAcademicYear("2026-27", " ")?.name)
+        for (number in listOf("0", "100", "-1", "１", "3 4", "")) assertNull(validatedSemester(number, "Example"))
+        assertEquals("1", validatedSemester("01", "Example")?.code)
+        assertEquals("3", validatedSemester("Sem 3", "Example")?.code)
+        assertEquals("Semester 1", validatedSemester("1", " ")?.name)   // an empty name is filled in
         assertEquals("99", validatedSemester("99", "Example")?.code)
     }
 

@@ -40,6 +40,12 @@ class ApiExceptionHandler {
         return response(ApiError.MATERIAL_FILE_INVALID);
     }
 
+    /** A database rule refused the write (for example a duplicate or a record still in use): 409, not a raw 500. */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    ResponseEntity<ApiError.Body> dataConflict() {
+        return response(ApiError.DATA_CONFLICT);
+    }
+
     @ExceptionHandler({TransientDataAccessException.class, DataAccessResourceFailureException.class,
             RecoverableDataAccessException.class, CannotCreateTransactionException.class})
     ResponseEntity<ApiError.Body> databaseUnavailable() {

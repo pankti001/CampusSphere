@@ -48,12 +48,23 @@ class TimetableRepository(private val api: TimetableApi) {
     suspend fun scopes(auth: String) = call { api.scopes(auth) }
     suspend fun versions(auth: String, semesterId: Long, divisionId: Long) = call { api.list(auth, semesterId, divisionId, null, 0) }
     /** Every timetable of the college (newest academic year first), for choosing one to copy. */
-    suspend fun all(auth: String, page: Int = 0) = call { api.list(auth, null, null, null, page) }
+    suspend fun all(auth: String) = pages { page -> call { api.list(auth, null, null, null, page) } }
     suspend fun create(auth: String, semesterId: Long, divisionId: Long) = call { api.create(auth, TimetableCreate(semesterId, divisionId)) }
     suspend fun detail(auth: String, id: Long) = call { api.detail(auth, id) }
     suspend fun preview(auth: String, id: Long) = call { api.preview(auth, id) }
     suspend fun options(auth: String, id: Long) = call { api.options(auth, id) }
-    suspend fun history(auth: String, id: Long, page: Int = 0) = call { api.history(auth, id, page) }
+    suspend fun history(auth: String, id: Long) = pages { page -> call { api.history(auth, id, page) } }
+
+    /** Reads pages of 50 until a short page (at most 20 pages), so older items are not silently missing. */
+    private suspend fun <T> pages(load: suspend (Int) -> List<T>): List<T> {
+        val all = mutableListOf<T>()
+        for (page in 0 until 20) {
+            val items = load(page)
+            all += items
+            if (items.size < 50) break
+        }
+        return all
+    }
     suspend fun addEntry(auth: String, id: Long, input: TimetableEntryInput) = call { api.addEntry(auth, id, input) }
     suspend fun updateEntry(auth: String, id: Long, entryId: Long, input: TimetableEntryInput) =
         call { api.updateEntry(auth, id, entryId, input) }

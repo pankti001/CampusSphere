@@ -129,6 +129,8 @@ public class StudyMaterials {
         }
         if (filter.type() != null) { sql.append(" AND m.material_type = ?"); args.add(filter.type()); }
         if (filter.status() != null && role != CollegeRole.STUDENT) { sql.append(" AND m.status = ?"); args.add(filter.status()); }
+        // Deleted materials are history: the admin sees them only when asking for them by status.
+        else if (role == CollegeRole.COLLEGE_ADMIN) sql.append(" AND m.status <> 'DELETED'");
         if (filter.q() != null) {
             sql.append(" AND strpos(lower(m.title), lower(?)) > 0");
             args.add(filter.q());

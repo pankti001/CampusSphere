@@ -114,6 +114,7 @@ class MainActivity : ComponentActivity() {
         val timetables = TimetableRepository(RetrofitClient.createService(TimetableApi::class.java))
         val timetableImports = TimetableImportRepository(RetrofitClient.createService(TimetableImportApi::class.java))
         val facultyNotices = FacultyNotificationRepository(RetrofitClient.createService(FacultyNotificationApi::class.java))
+        val collegeAdmin = com.campussphere.app.data.repository.CollegeAdminRepository(RetrofitClient.createService(com.campussphere.app.data.remote.api.CollegeAdminApi::class.java))
         val attendanceRepository = AttendanceRepository(RetrofitClient.createService(AttendanceApi::class.java))
         val platformRepository = PlatformRepository(RetrofitClient.createService(PlatformApi::class.java))
         val registrationApi = RetrofitClient.createService(com.campussphere.app.data.remote.api.CollegeRegistrationApi::class.java)
@@ -198,7 +199,8 @@ class MainActivity : ComponentActivity() {
                     } else if (state.account?.dashboardRole == DashboardRole.COLLEGE_ADMIN) {
                         var academicSection by rememberSaveable { mutableStateOf<AcademicSection?>(null) }
                         val section = academicSection
-                        if (section == AcademicSection.TIMETABLES) TimetableAdminScreen(timetables, timetableImports, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
+                        if (section == AcademicSection.ACCOUNTS) com.campussphere.app.presentation.college.CollegeAccountsScreen(collegeAdmin, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
+                        else                         if (section == AcademicSection.TIMETABLES) TimetableAdminScreen(timetables, timetableImports, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.ANNOUNCEMENTS) AnnouncementScreen(announcements, "college", auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.MATERIALS) MaterialScreen(materials,"college",auth::departmentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.ATTENDANCE) {
@@ -221,14 +223,21 @@ class MainActivity : ComponentActivity() {
                                 academicSection = null
                                 auth.refresh()
                             }
-                        } else SessionScreen(state, auth::refresh, auth::reapplyForFaculty, auth::logout,
-                            onAcademicYears = { academicSection = AcademicSection.YEARS },
-                            onDepartments = { academicSection = AcademicSection.DEPARTMENTS },
-                            onFaculty = { academicSection = AcademicSection.FACULTY },
-                            onStudents = { academicSection = AcademicSection.STUDENTS },
-                            onMaterials = { academicSection = AcademicSection.MATERIALS }, onAttendance = { academicSection = AcademicSection.ATTENDANCE },
-                            onAnnouncements = { academicSection = AcademicSection.ANNOUNCEMENTS },
-                            onTimetable = { academicSection = AcademicSection.TIMETABLES })
+                        } else com.campussphere.app.presentation.college.CollegeAdminHome(collegeAdmin, auth::departmentAuthorization,
+                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, state.isLoading, state.error?.message,
+                            auth::refresh, auth::logout) { area ->
+                            academicSection = when (area) {
+                                com.campussphere.app.presentation.college.AdminArea.DEPARTMENTS -> AcademicSection.DEPARTMENTS
+                                com.campussphere.app.presentation.college.AdminArea.YEARS -> AcademicSection.YEARS
+                                com.campussphere.app.presentation.college.AdminArea.FACULTY -> AcademicSection.FACULTY
+                                com.campussphere.app.presentation.college.AdminArea.STUDENTS -> AcademicSection.STUDENTS
+                                com.campussphere.app.presentation.college.AdminArea.ACCOUNTS -> AcademicSection.ACCOUNTS
+                                com.campussphere.app.presentation.college.AdminArea.TIMETABLES -> AcademicSection.TIMETABLES
+                                com.campussphere.app.presentation.college.AdminArea.ATTENDANCE -> AcademicSection.ATTENDANCE
+                                com.campussphere.app.presentation.college.AdminArea.MATERIALS -> AcademicSection.MATERIALS
+                                com.campussphere.app.presentation.college.AdminArea.ANNOUNCEMENTS -> AcademicSection.ANNOUNCEMENTS
+                            }
+                        }
                     } else if (state.account?.dashboardRole == DashboardRole.FACULTY) {
                         var showAttendance by rememberSaveable { mutableStateOf(false) }
                         var showMaterials by rememberSaveable { mutableStateOf(false) }
@@ -292,7 +301,7 @@ class MainActivity : ComponentActivity() {
         !BuildConfig.DEBUG || Build.VERSION.SDK_INT < 37 ||
             checkSelfPermission(LOCAL_NETWORK_PERMISSION) == PackageManager.PERMISSION_GRANTED
 
-    private enum class AcademicSection { YEARS, DEPARTMENTS, FACULTY, STUDENTS, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, TIMETABLES }
+    private enum class AcademicSection { YEARS, DEPARTMENTS, FACULTY, STUDENTS, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, TIMETABLES, ACCOUNTS }
 
     private companion object {
         const val LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"

@@ -20,6 +20,7 @@ public enum ApiError {
     TIMETABLE_NOT_READY(HttpStatus.CONFLICT, "Fix the listed problems before publishing."),
     TIMETABLE_DRAFT_EXISTS(HttpStatus.CONFLICT, "A draft already exists for this division and semester."),
     TIMETABLE_STATE_CONFLICT(HttpStatus.CONFLICT, "This timetable changed or can no longer be changed this way. Refresh and try again."),
+    DATA_CONFLICT(HttpStatus.CONFLICT, "This change conflicts with existing records. Refresh and try again."),
     TIMETABLE_IMPORT_INVALID(HttpStatus.BAD_REQUEST, "Fix the problems shown in the preview, then upload the corrected file."),
     TIMETABLE_IMPORT_CHANGED(HttpStatus.CONFLICT, "This file differs from the one you previewed. Preview it again before importing."),
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "The notification was not found."),

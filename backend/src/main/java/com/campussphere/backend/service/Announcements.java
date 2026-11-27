@@ -390,16 +390,18 @@ public class Announcements {
     public Stats stats(Account actor, long id) {
         long college = actor.requireCollege(CollegeRole.COLLEGE_ADMIN, null);
         detail(actor, CollegeRole.COLLEGE_ADMIN, id);
-        long audience = db.queryForObject("""
-                SELECT count(DISTINCT u.id) FROM public.announcements a
+        // Reads are counted only for people still in the audience, so "read by X of Y" never exceeds Y.
+        return db.queryForObject("""
+                SELECT count(DISTINCT u.id) audience,
+                       count(DISTINCT u.id) FILTER (WHERE EXISTS (SELECT 1 FROM public.announcement_reads rd
+                           WHERE rd.college_id = a.college_id AND rd.announcement_id = a.id AND rd.user_id = u.id)) reads
+                FROM public.announcements a
                 JOIN public.users u ON u.college_id = a.college_id AND u.is_active AND u.is_verified
                 JOIN public.user_roles ur ON ur.user_id = u.id JOIN public.roles ro ON ro.id = ur.role_id
                 WHERE a.college_id = ? AND a.id = ? AND (
                       (ro.name = 'STUDENT' AND %s) OR (ro.name = 'FACULTY' AND %s))
-                """.formatted(studentMatch("u.id"), facultyMatch("u.id")), Long.class, college, id);
-        long reads = db.queryForObject("SELECT count(*) FROM public.announcement_reads WHERE college_id = ? AND announcement_id = ?",
-                Long.class, college, id);
-        return new Stats(audience, reads);
+                """.formatted(studentMatch("u.id"), facultyMatch("u.id")),
+                (r, i) -> new Stats(r.getLong("audience"), r.getLong("reads")), college, id);
     }
 
     public Overview overview(Account actor) {

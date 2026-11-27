@@ -118,11 +118,14 @@ public class AttendanceReports {
     public ReportOptions options(Account account) {
         long college = account.requireCollege(CollegeRole.COLLEGE_ADMIN, null);
         var result = new LinkedHashMap<String, List<Option>>();
-        addOptions(result, "department", "departments", "department_id", college);
-        addOptions(result, "program", "academic_programs", "program_id", college);
-        addOptions(result, "semester", "academic_semesters", "semester_id", college);
-        addOptions(result, "division", "academic_divisions", "division_id", college);
-        addOptions(result, "subject", "academic_subjects", "subject_id", college);
+        // Labels carry their context ("BSc · Semester 3", "BSc · 2026-2027 · A") so equal names can be told apart.
+        addOptions(result, "department", "departments", "department_id", college, "t.name");
+        addOptions(result, "program", "academic_programs", "program_id", college, "t.name");
+        addOptions(result, "semester", "academic_semesters", "semester_id", college, PROGRAM_OF_T + " || ' · ' || t.name");
+        addOptions(result, "division", "academic_divisions", "division_id", college, PROGRAM_OF_T + " || ' · ' || "
+                + "(SELECT y.code FROM public.academic_years y WHERE y.college_id=t.college_id AND y.id=t.academic_year_id)"
+                + " || ' · ' || t.name");
+        addOptions(result, "subject", "academic_subjects", "subject_id", college, "t.code || ' · ' || t.name");
         result.put("faculty", jdbc.query("""
                 SELECT DISTINCT u.id,u.full_name AS label FROM public.attendance_sessions s
                 JOIN public.users u ON u.college_id=s.college_id AND u.id=s.faculty_id
@@ -132,9 +135,13 @@ public class AttendanceReports {
         return new ReportOptions(result);
     }
 
-    private void addOptions(Map<String, List<Option>> options, String key, String table, String column, long college) {
-        // Table and column identifiers come only from the fixed mappings above.
-        options.put(key, jdbc.query("SELECT DISTINCT t.id,t.name AS label FROM public.attendance_sessions s"
+    private static final String PROGRAM_OF_T =
+            "(SELECT p.name FROM public.academic_programs p WHERE p.college_id=t.college_id AND p.id=t.program_id)";
+
+    private void addOptions(Map<String, List<Option>> options, String key, String table, String column, long college,
+                            String label) {
+        // Table, column and label expressions come only from the fixed mappings above.
+        options.put(key, jdbc.query("SELECT DISTINCT t.id," + label + " AS label FROM public.attendance_sessions s"
                 + " JOIN public." + table + " t ON t.college_id=s.college_id AND t.id=s." + column + PUBLISHED
                 + " ORDER BY label,t.id", AttendanceReports::option, college));
     }

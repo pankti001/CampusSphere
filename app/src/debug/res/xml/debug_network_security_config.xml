@@ -2,6 +2,8 @@
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
+        <!-- 127.0.0.1: phone or emulator with "adb reverse tcp:8080 tcp:8080"; 10.0.2.2: emulator host address. -->
+        <domain>127.0.0.1</domain>
         <domain>10.0.2.2</domain>
     </domain-config>
 </network-security-config>
