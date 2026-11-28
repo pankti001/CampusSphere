@@ -2,15 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <application android:networkSecurityConfig="@xml/debug_network_security_config">
+        <!-- Design preview with sample data. No launcher icon, so test builds show only the real CampusSphere app. -->
         <activity
             android:name="com.campussphere.app.preview.AdminPreviewActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/admin_preview_app_name"
-            android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>
