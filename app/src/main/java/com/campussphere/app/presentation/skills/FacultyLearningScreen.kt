@@ -248,8 +248,10 @@ fun FacultyLearningCard(repo: FacultyLearningRepository, auth: () -> String, ope
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { waiting = null }
     LaunchedEffect(waiting) {
         if (waiting == null) {
-            runCatching { repo.list(auth()) }.onSuccess { list -> waiting = list.count { it.status == "OPEN" } }.onFailure { waiting = -1 }
+            // Both are fetched before either is shown: setting [waiting] restarts this effect.
+            val count = runCatching { repo.list(auth()) }.map { list -> list.count { it.status == "OPEN" } }.getOrDefault(-1)
             unread = runCatching { repo.unread(auth()) }.getOrDefault(0)
+            waiting = count
         }
     }
     Card(onClick = open, modifier = Modifier.fillMaxWidth().appear(4), shape = MaterialTheme.shapes.large,

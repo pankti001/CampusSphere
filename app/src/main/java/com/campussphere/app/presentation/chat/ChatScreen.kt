@@ -56,8 +56,12 @@ fun chatTime(iso: String?, zone: ZoneId = ZoneId.systemDefault(), today: java.ti
 /** Students' groups and chats. Faculty and College Admins have no way into this screen or its data. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+/**
+ * [closeWithChat]: the chat was opened from somewhere else (Skill Exchange), so Back from that conversation closes
+ * Chats and returns there, instead of showing the list of all chats first.
+ */
 fun ChatScreen(repo: ChatRepository, files: HomeworkRepository, auth: () -> String, lost: (Int) -> Unit,
-               openId: Long? = null, exit: () -> Unit) {
+               openId: Long? = null, closeWithChat: Boolean = false, exit: () -> Unit) {
     val owner = remember { object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() } }
     DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
     val vm = viewModel<ChatViewModel>(viewModelStoreOwner = owner) { ChatViewModel(repo, auth, lost) }
@@ -72,7 +76,8 @@ fun ChatScreen(repo: ChatRepository, files: HomeworkRepository, auth: () -> Stri
     var saving by remember { mutableStateOf<ChatMessage?>(null) }
 
     LaunchedEffect(vm) { vm.start(openId) }
-    BackHandler { if (!ui.busy && !vm.back()) exit() }
+    val goBack = { if (closeWithChat && ui.page == ChatPage.CHAT) exit() else if (!vm.back()) exit() }
+    BackHandler { if (!ui.busy) goBack() }
 
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
@@ -117,7 +122,7 @@ fun ChatScreen(repo: ChatRepository, files: HomeworkRepository, auth: () -> Stri
     val current = ui.current
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton({ if (!vm.back()) exit() }, enabled = !ui.busy) { Text("Back") }
+            TextButton(goBack, enabled = !ui.busy) { Text("Back") }
             Column(Modifier.weight(1f)) {
                 Text(when (ui.page) {
                     ChatPage.LIST -> "Groups and chats"

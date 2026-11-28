@@ -318,6 +318,7 @@ class MainActivity : ComponentActivity() {
                         var chatsOpen by rememberSaveable { mutableStateOf(false) }
                         var chatId by rememberSaveable { mutableStateOf<Long?>(null) }
                         var skillsOpen by rememberSaveable { mutableStateOf(false) }
+                        var chatFromSkills by rememberSaveable { mutableStateOf(false) }
                         val studentPage = when {
                             chatsOpen -> "chats"; skillsOpen -> "skills"; openTab != null -> "homework"; showTimetable -> "timetable"
                             showAnnouncements -> "announcements"; showMaterials -> "materials"; showAttendance -> "attendance"
@@ -325,10 +326,11 @@ class MainActivity : ComponentActivity() {
                         }
                         com.campussphere.app.ui.brand.ScreenSwitch(studentPage) { page -> when (page) {
                         "chats" -> com.campussphere.app.presentation.chat.ChatScreen(chats, homework, auth::studentAuthorization,
-                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, chatId) { chatsOpen = false; chatId = null }
+                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, chatId, closeWithChat = chatFromSkills) {
+                            chatsOpen = false; chatId = null; chatFromSkills = false }
                         // "Message" in Skill Exchange opens the private chat; Back from that chat returns to Skill Exchange.
                         "skills" -> com.campussphere.app.presentation.skills.SkillScreen(skills, chats, auth::studentAuthorization,
-                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, { id -> chatId = id; chatsOpen = true }) { skillsOpen = false }
+                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, { id -> chatId = id; chatFromSkills = true; chatsOpen = true }) { skillsOpen = false }
                         "homework" -> com.campussphere.app.presentation.homework.StudentHomeworkScreen(homework, auth::studentAuthorization,
                             { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, openTab ?: "PENDING") { homeworkTab = null }
                         "timetable" -> MyTimetableScreen(timetables, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showTimetable = false }
