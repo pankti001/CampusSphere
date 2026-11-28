@@ -262,6 +262,10 @@ class MainActivity : ComponentActivity() {
                         }
                         }
                     } else if (state.account?.dashboardRole == DashboardRole.FACULTY) {
+                        // The faculty dashboard's data lives here, so it is still loaded when they come back.
+                        val facultyKeep = androidx.compose.runtime.remember { object : androidx.lifecycle.ViewModelStoreOwner {
+                            override val viewModelStore = androidx.lifecycle.ViewModelStore() } }
+                        DisposableEffect(facultyKeep) { onDispose { facultyKeep.viewModelStore.clear() } }
                         var showAttendance by rememberSaveable { mutableStateOf(false) }
                         var showMaterials by rememberSaveable { mutableStateOf(false) }
                         var showAnnouncements by rememberSaveable { mutableStateOf(false) }
@@ -295,20 +299,26 @@ class MainActivity : ComponentActivity() {
                         "attendance" -> AttendanceScreen(attendanceRepository, auth::facultyAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, AttendanceMode.FACULTY) { showAttendance = false }
-                        else -> FacultyScreen(facultyRepository, auth::facultyAuthorization, { status ->
-                            if (status == 401) auth.expirePlatformSession() else auth.refresh()
-                        }, auth::logout, dashboard = true, onMaterials = { showMaterials = true }, onAttendance = { showAttendance = true },
-                            onAnnouncements = { showAnnouncements = true }, onTimetable = { showTimetable = true },
-                            onNotifications = { showNotifications = true }, unreadNotifications = unreadNotices,
-                            onResources = { showResources = true },
-                            homeworkCard = {
-                                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    com.campussphere.app.presentation.homework.FacultyHomeworkCard(homework, auth::facultyAuthorization,
-                                        { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
-                                        { homeworkCreate = false; showHomework = true }) { homeworkCreate = true; showHomework = true }
-                                    com.campussphere.app.presentation.skills.FacultyLearningCard(facultyLearning, auth::facultyAuthorization) { showLearning = true }
+                        else -> com.campussphere.app.presentation.college.FacultyHomeScreen(
+                            vmFactory = {
+                                com.campussphere.app.presentation.college.FacultyHomeViewModel(facultyRepository, homework, facultyLearning,
+                                    timetables, auth::facultyAuthorization) { if (it == 401) auth.expirePlatformSession() else auth.refresh() }
+                            },
+                            unreadNotifications = unreadNotices,
+                            open = { area ->
+                                when (area) {
+                                    com.campussphere.app.presentation.college.FacultyArea.NOTIFICATIONS -> showNotifications = true
+                                    com.campussphere.app.presentation.college.FacultyArea.TIMETABLE -> showTimetable = true
+                                    com.campussphere.app.presentation.college.FacultyArea.ATTENDANCE -> showAttendance = true
+                                    com.campussphere.app.presentation.college.FacultyArea.HOMEWORK -> { homeworkCreate = false; showHomework = true }
+                                    com.campussphere.app.presentation.college.FacultyArea.CREATE_HOMEWORK -> { homeworkCreate = true; showHomework = true }
+                                    com.campussphere.app.presentation.college.FacultyArea.MATERIALS -> showMaterials = true
+                                    com.campussphere.app.presentation.college.FacultyArea.RESOURCES -> showResources = true
+                                    com.campussphere.app.presentation.college.FacultyArea.ANNOUNCEMENTS -> showAnnouncements = true
+                                    com.campussphere.app.presentation.college.FacultyArea.LEARNING -> showLearning = true
                                 }
-                            })
+                            },
+                            onLogout = auth::logout, keep = facultyKeep)
                         } }
                     } else if (state.account?.studentAffiliationEligible == true) {
                         var showRequest by rememberSaveable { mutableStateOf(false) }

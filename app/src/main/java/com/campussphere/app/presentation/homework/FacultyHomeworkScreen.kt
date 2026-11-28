@@ -5,7 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -14,9 +14,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
@@ -28,6 +29,7 @@ import com.campussphere.app.data.repository.HomeworkFailure
 import com.campussphere.app.data.repository.HomeworkRepository
 import com.campussphere.app.data.repository.homeworkPickerTypes
 import com.campussphere.app.data.repository.homeworkSize
+import com.campussphere.app.ui.brand.*
 import kotlinx.coroutines.launch
 
 private val ROSTER_FILTERS = listOf("ALL" to "All", "PENDING" to "Pending", "SUBMITTED" to "To mark", "LATE" to "Late",
@@ -76,192 +78,229 @@ fun FacultyHomeworkScreen(repo: HomeworkRepository, auth: () -> String, lost: (I
         }
     }
 
-    confirm?.let { action ->
-        AlertDialog(onDismissRequest = { confirm = null },
-            title = { Text(when (action) { "publish" -> "Publish this assignment?"; "close" -> "Close this assignment?"; else -> "Archive this assignment?" }) },
-            text = { Text(when (action) {
-                "publish" -> "Students of ${ui.selected?.division} will see it and be notified. Its class and issue date cannot change afterwards."
-                "close" -> "Students can no longer hand in work (except work you return for correction). Marking stays open."
-                else -> "It moves out of your active list. Students keep seeing their own work and results."
-            }) },
-            confirmButton = { TextButton({ confirm = null; vm.lifecycle(action) }) { Text(action.replaceFirstChar { it.uppercase() }) } },
-            dismissButton = { TextButton({ confirm = null }) { Text("Cancel") } })
-    }
-
-    LazyColumn(Modifier.fillMaxSize().safeDrawingPadding().imePadding(), contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            TextButton({ if (!vm.back()) exit() }, enabled = !busy) { Text("Back") }
-            Text(when (ui.page) {
-                FacultyHomeworkPage.LIST -> "My assignments"
-                FacultyHomeworkPage.FORM -> if (ui.form?.id == null) "Create assignment" else "Edit assignment"
-                FacultyHomeworkPage.DETAIL -> "Assignment"
-                FacultyHomeworkPage.PREVIEW -> "Preview"
-                FacultyHomeworkPage.SUBMISSIONS -> "Submissions"
-                FacultyHomeworkPage.REVIEW -> "Review submission"
-                FacultyHomeworkPage.HISTORY -> "History"
-            }, style = MaterialTheme.typography.headlineMedium)
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-            ui.progress?.let { p -> LinearProgressIndicator({ p }, Modifier.fillMaxWidth().padding(top = 4.dp)) }
+    val selected = ui.selected
+    CampusPage(
+        title = when (ui.page) {
+            FacultyHomeworkPage.LIST -> "My assignments"
+            FacultyHomeworkPage.FORM -> if (ui.form?.id == null) "Create assignment" else "Edit assignment"
+            FacultyHomeworkPage.DETAIL -> "Assignment"
+            FacultyHomeworkPage.PREVIEW -> "Preview"
+            FacultyHomeworkPage.SUBMISSIONS -> "Submissions"
+            FacultyHomeworkPage.REVIEW -> "Review submission"
+            FacultyHomeworkPage.HISTORY -> "History"
+        },
+        subtitle = when (ui.page) {
+            FacultyHomeworkPage.LIST -> null
+            FacultyHomeworkPage.FORM -> if (ui.form?.id == null) null else selected?.title
+            FacultyHomeworkPage.DETAIL, FacultyHomeworkPage.PREVIEW ->
+                selected?.let { "${it.subjectCode} · ${it.subject} · ${it.division}" }
+            else -> selected?.title
+        },
+        onBack = { if (!vm.back()) exit() },
+        backEnabled = !busy,
+        busy = busy,
+        // The list, each assignment, each roster filter and each submission keep their own scroll position.
+        stateKey = when (ui.page) {
+            FacultyHomeworkPage.LIST -> "list-${ui.classFilter}-${ui.statusFilter}"
+            FacultyHomeworkPage.FORM -> "form-${ui.form?.id ?: "new"}"
+            FacultyHomeworkPage.DETAIL -> "detail-${selected?.id}"
+            FacultyHomeworkPage.PREVIEW -> "preview-${selected?.id}"
+            FacultyHomeworkPage.SUBMISSIONS -> "submissions-${selected?.id}-${ui.rosterFilter}"
+            FacultyHomeworkPage.REVIEW -> "submission-${ui.review?.submission?.id}"
+            FacultyHomeworkPage.HISTORY -> "history-${selected?.id}"
+        },
+    ) {
+        ui.progress?.let { p ->
+            item(key = "progress") {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Uploading ${(p * 100).toInt().coerceIn(0, 100)}%", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    LinearProgressIndicator({ p }, Modifier.fillMaxWidth())
+                }
+            }
         }
-        item { HomeworkMessages(ui.error, ui.notice, vm::clearMessages) }
+        if (ui.error != null || ui.notice != null) item(key = "messages") {
+            HomeworkMessages(ui.error, ui.notice, vm::clearMessages)
+        }
         when (ui.page) {
             FacultyHomeworkPage.LIST -> listPage(ui, vm, busy)
-            FacultyHomeworkPage.FORM -> item { FormPage(ui, vm, busy) }
-            FacultyHomeworkPage.DETAIL -> ui.selected?.let { hw ->
-                item {
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            HomeworkBadge(homeworkStatusLabel(hw.status), statusColor(hw.status))
-                            HomeworkDetails(hw) {
-                                download(hw.attachmentName ?: "attachment") { uri ->
-                                    repo.saveAttachment(auth(), "faculty", hw.id, context.contentResolver, uri)
-                                }
+            FacultyHomeworkPage.FORM -> formPage(ui, vm, busy)
+            FacultyHomeworkPage.DETAIL -> selected?.let { hw ->
+                item(key = "details") {
+                    InfoCard {
+                        StatusChip(homeworkStatusLabel(hw.status), homeworkTone(hw.status))
+                        HomeworkDetails(hw) {
+                            download(hw.attachmentName ?: "attachment") { uri ->
+                                repo.saveAttachment(auth(), "faculty", hw.id, context.contentResolver, uri)
                             }
                         }
                     }
                 }
                 hw.counts?.takeIf { hw.status != "DRAFT" }?.let { c ->
-                    item {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            HomeworkStat("Students", c.roster, Modifier.weight(1f))
-                            HomeworkStat("Pending", c.pending, Modifier.weight(1f))
-                            HomeworkStat("To mark", c.toMark, Modifier.weight(1f))
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            HomeworkStat("Submitted", c.submitted, Modifier.weight(1f))
-                            HomeworkStat("Late", c.late, Modifier.weight(1f))
-                            HomeworkStat("Marked", c.evaluated, Modifier.weight(1f))
+                    item(key = "stats") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                HomeworkStat("Students", c.roster, Modifier.weight(1f))
+                                HomeworkStat("Pending", c.pending, Modifier.weight(1f))
+                                HomeworkStat("To mark", c.toMark, Modifier.weight(1f))
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                HomeworkStat("Submitted", c.submitted, Modifier.weight(1f))
+                                HomeworkStat("Late", c.late, Modifier.weight(1f))
+                                HomeworkStat("Marked", c.evaluated, Modifier.weight(1f))
+                            }
                         }
                     }
                 }
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (hw.status == "DRAFT") Button({ vm.preview() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                            Text("Preview and publish")
-                        }
-                        if (hw.status != "DRAFT") Button({ vm.submissions("ALL") }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                            Text("View submissions")
-                        }
+                item(key = "actions") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (hw.status == "DRAFT") PrimaryButton("Preview and publish", { vm.preview() }, enabled = !busy,
+                            icon = CampusIcons.Eye)
+                        else PrimaryButton("View submissions", { vm.submissions("ALL") }, enabled = !busy, icon = CampusIcons.Users)
+                        SectionHeader("Manage")
                         if (hw.canEdit) {
-                            OutlinedButton({ vm.editForm() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Edit") }
-                            OutlinedButton({ pick.launch(homeworkPickerTypes(HOMEWORK_FORMATS.map { it.first })) }, enabled = !busy,
-                                modifier = Modifier.fillMaxWidth()) {
-                                Text(if (hw.attachmentName == null) "Attach a file for students" else "Replace attachment")
-                            }
-                            if (hw.attachmentName != null) TextButton({ vm.detach() }, enabled = !busy) { Text("Remove attachment") }
+                            SecondaryButton("Edit", { vm.editForm() }, enabled = !busy, icon = CampusIcons.Edit)
+                            SecondaryButton(if (hw.attachmentName == null) "Attach a file for students" else "Replace attachment",
+                                { pick.launch(homeworkPickerTypes(HOMEWORK_FORMATS.map { it.first })) }, enabled = !busy,
+                                icon = CampusIcons.Upload)
+                            if (hw.attachmentName != null) SecondaryButton("Remove attachment", { vm.detach() }, enabled = !busy,
+                                icon = CampusIcons.Trash, danger = true)
                         }
-                        if (hw.status == "PUBLISHED") OutlinedButton({ confirm = "close" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                            Text("Close submissions")
-                        }
-                        if (hw.status != "ARCHIVED") TextButton({ confirm = "archive" }, enabled = !busy) { Text("Archive") }
-                        TextButton({ vm.history() }, enabled = !busy) { Text("History") }
+                        SecondaryButton("History", { vm.history() }, enabled = !busy, icon = CampusIcons.Clock)
+                        if (hw.status == "PUBLISHED") SecondaryButton("Close submissions", { confirm = "close" }, enabled = !busy,
+                            icon = CampusIcons.Close, danger = true)
+                        if (hw.status != "ARCHIVED") SecondaryButton("Archive", { confirm = "archive" }, enabled = !busy,
+                            icon = CampusIcons.Archive, danger = true)
                     }
                 }
             }
-            FacultyHomeworkPage.PREVIEW -> ui.selected?.let { hw ->
-                item { Text("This is what students will see.", style = MaterialTheme.typography.bodyMedium) }
-                item { Card(Modifier.fillMaxWidth()) { Box(Modifier.padding(14.dp)) { HomeworkDetails(hw, null) } } }
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button({ confirm = "publish" }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Publish now") }
-                        OutlinedButton({ vm.editForm() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Make changes") }
+            FacultyHomeworkPage.PREVIEW -> selected?.let { hw ->
+                item(key = "hint") { MessageBanner("This is what students will see.", MessageKind.Info) }
+                item(key = "details") { InfoCard { HomeworkDetails(hw, null) } }
+                item(key = "actions") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PrimaryButton("Publish now", { confirm = "publish" }, enabled = !busy, icon = CampusIcons.Megaphone)
+                        SecondaryButton("Make changes", { vm.editForm() }, enabled = !busy, icon = CampusIcons.Edit)
                     }
                 }
             }
             FacultyHomeworkPage.SUBMISSIONS -> {
-                item {
-                    Text(ui.selected?.title.orEmpty(), style = MaterialTheme.typography.titleMedium)
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ROSTER_FILTERS.forEach { (key, label) ->
-                            FilterChip(ui.rosterFilter == key, { vm.submissions(key) }, { Text(label) }, enabled = !busy)
-                        }
+                item(key = "filters") {
+                    val index = ROSTER_FILTERS.indexOfFirst { it.first == ui.rosterFilter }.coerceAtLeast(0)
+                    RosterTabs(ROSTER_FILTERS.map { it.second }, index) { i ->
+                        // Filters do nothing while a request is running, as before.
+                        if (!busy) vm.submissions(ROSTER_FILTERS[i].first)
                     }
                 }
-                if (ui.roster.isEmpty() && !busy) item { Text("No students match this filter.") }
-                items(ui.roster, key = { it.studentId }) { row ->
-                    Card(onClick = { vm.openReview(row) }, enabled = !busy && row.submissionId != null, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(row.student, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                HomeworkBadge(homeworkStatusLabel(row.status), statusColor(row.status))
-                            }
-                            row.submittedAt?.let { Text("Submitted ${homeworkTime(it)}" + (if (row.late) " · late" else "") +
-                                (row.attempt?.takeIf { a -> a > 1 }?.let { a -> " · attempt $a" } ?: "")) }
-                            row.marks?.let { Text("Marks: ${homeworkMarks(it)} / ${homeworkMarks(ui.selected?.maxMarks)}") }
-                        }
-                    }
+                if (ui.roster.isEmpty() && !busy) item(key = "empty") {
+                    EmptyState("No students", "No students match this filter.")
                 }
-                if (ui.rosterHasMore) item { OutlinedButton(vm::moreSubmissions, enabled = !busy) { Text("Load more") } }
+                items(ui.roster, key = { "student-${it.studentId}" }) { row ->
+                    ListRow(row.student,
+                        subtitle = row.submittedAt?.let {
+                            "Submitted ${homeworkTime(it)}" + (if (row.late) " · late" else "") +
+                                (row.attempt?.takeIf { a -> a > 1 }?.let { a -> " · attempt $a" } ?: "")
+                        },
+                        meta = row.marks?.let { "Marks: ${homeworkMarks(it)} / ${homeworkMarks(selected?.maxMarks)}" },
+                        icon = if (row.submissionId != null) CampusIcons.File else CampusIcons.Users,
+                        chip = { StatusChip(homeworkStatusLabel(row.status), homeworkTone(row.status)) },
+                        onClick = if (row.submissionId != null) ({ if (!busy) vm.openReview(row) }) else null)
+                }
+                if (ui.rosterHasMore) item(key = "more") { SecondaryButton("Load more", vm::moreSubmissions, enabled = !busy) }
             }
             FacultyHomeworkPage.REVIEW -> ui.review?.let { review ->
                 val s = review.submission
-                val assignment = ui.selected
-                val canMark = assignment != null && assignment.status in setOf("PUBLISHED", "CLOSED") && s.status in setOf("SUBMITTED", "EVALUATED")
-                item {
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val canMark = selected != null && selected.status in setOf("PUBLISHED", "CLOSED") &&
+                    s.status in setOf("SUBMITTED", "EVALUATED")
+                item(key = "submission") {
+                    InfoCard {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(s.student, style = MaterialTheme.typography.titleMedium)
-                            s.studentEmail?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            HomeworkBadge(homeworkStatusLabel(s.status), statusColor(s.status))
-                            Text("Attempt ${s.attempt} · submitted ${homeworkTime(s.submittedAt)}" + if (s.late) " · LATE" else "")
-                            Text("${s.fileName} (${homeworkSize(s.sizeBytes)})")
-                            OutlinedButton({
-                                download(s.fileName) { uri ->
-                                    repo.saveSubmission(auth(), "faculty", s.assignmentId, s.id, context.contentResolver, uri)
-                                }
-                            }, enabled = !busy) { Text("Download submitted file") }
-                            s.comment?.takeIf { it.isNotBlank() }?.let { Text("Student's comment: $it") }
-                            s.evaluatedBy?.let { Text("Last reviewed by $it on ${homeworkTime(s.evaluatedAt)}", style = MaterialTheme.typography.bodySmall) }
+                            s.studentEmail?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            StatusChip(homeworkStatusLabel(s.status), homeworkTone(s.status))
+                            if (s.late) StatusChip("Late", Tone.Warning)
+                        }
+                        InfoRow("Submitted", "${homeworkTime(s.submittedAt)} · attempt ${s.attempt}")
+                        InfoRow("File", "${s.fileName} (${homeworkSize(s.sizeBytes)})")
+                        s.comment?.takeIf { it.isNotBlank() }?.let { InfoRow("Student's comment", it) }
+                        s.evaluatedBy?.let { InfoRow("Last reviewed", "$it on ${homeworkTime(s.evaluatedAt)}") }
+                        SecondaryButton("Download submitted file", {
+                            download(s.fileName) { uri ->
+                                repo.saveSubmission(auth(), "faculty", s.assignmentId, s.id, context.contentResolver, uri)
+                            }
+                        }, enabled = !busy, icon = CampusIcons.Download)
                     }
                 }
-                if (canMark) item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Marks (out of ${homeworkMarks(review.maxMarks)})", style = MaterialTheme.typography.titleSmall)
-                        OutlinedTextField(ui.marks, vm::setMarks, label = { Text("Marks") }, singleLine = true, enabled = !busy,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(ui.feedback, vm::setFeedback, label = { Text("Feedback (optional)") }, enabled = !busy,
-                            minLines = 3, modifier = Modifier.fillMaxWidth())
-                        Button(vm::evaluate, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                            Text(if (s.status == "EVALUATED") "Update marks" else "Save marks")
+                if (canMark) {
+                    item(key = "marks-header") { SectionHeader("Marks (out of ${homeworkMarks(review.maxMarks)})") }
+                    item(key = "marks") {
+                        InfoCard {
+                            OutlinedTextField(ui.marks, vm::setMarks, label = { Text("Marks") }, singleLine = true, enabled = !busy,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.small)
+                            OutlinedTextField(ui.feedback, vm::setFeedback, label = { Text("Feedback (optional)") }, enabled = !busy,
+                                minLines = 3, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small)
+                            PrimaryButton(if (s.status == "EVALUATED") "Update marks" else "Save marks", vm::evaluate,
+                                enabled = !busy, icon = CampusIcons.Check)
                         }
                     }
-                } else item {
-                    Text(when {
-                        s.status == "RETURNED" -> "Returned for correction. Feedback: ${s.feedback.orEmpty()}"
-                        s.status == "SUPERSEDED" -> "This attempt was replaced by a later one."
-                        else -> "This assignment is archived; marks can no longer change."
-                    })
+                } else item(key = "locked") {
+                    MessageBanner(when (s.status) {
+                        "RETURNED" -> "Returned for correction. Feedback: ${s.feedback.orEmpty()}"
+                        "SUPERSEDED" -> "This attempt was replaced by a later one."
+                        else -> "This assignment is archived, so marks can no longer change."
+                    }, MessageKind.Info)
                 }
-                if (canMark && s.status == "SUBMITTED") item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HorizontalDivider()
-                        Text("Or return it for correction", style = MaterialTheme.typography.titleSmall)
-                        OutlinedTextField(ui.returnNote, vm::setReturnNote, label = { Text("What should the student fix?") },
-                            enabled = !busy, minLines = 2, modifier = Modifier.fillMaxWidth())
-                        OutlinedButton(vm::returnWork, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Return for correction") }
+                if (canMark && s.status == "SUBMITTED") {
+                    item(key = "return-header") { SectionHeader("Or return it for correction") }
+                    item(key = "return") {
+                        InfoCard {
+                            OutlinedTextField(ui.returnNote, vm::setReturnNote, label = { Text("What should the student fix?") },
+                                enabled = !busy, minLines = 2, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small)
+                            SecondaryButton("Return for correction", vm::returnWork, enabled = !busy, icon = CampusIcons.Refresh,
+                                danger = true)
+                        }
                     }
                 }
                 if (review.attempts.size > 1) {
-                    item { Text("All attempts", style = MaterialTheme.typography.titleSmall) }
+                    item(key = "attempts-header") { SectionHeader("All attempts") }
                     items(review.attempts, key = { "attempt-${it.id}" }) { a ->
-                        Text("Attempt ${a.attempt}: ${homeworkStatusLabel(a.status)} · ${homeworkTime(a.submittedAt)}" +
-                            (if (a.late) " · late" else "") + (a.marks?.let { " · ${homeworkMarks(it)} marks" } ?: ""),
-                            style = MaterialTheme.typography.bodySmall)
+                        ListRow("Attempt ${a.attempt}",
+                            subtitle = homeworkTime(a.submittedAt) + if (a.late) " · late" else "",
+                            meta = a.marks?.let { "${homeworkMarks(it)} marks" },
+                            icon = CampusIcons.File,
+                            chip = { StatusChip(homeworkStatusLabel(a.status), homeworkTone(a.status)) })
                     }
                 }
             }
             FacultyHomeworkPage.HISTORY -> {
-                if (ui.history.isEmpty()) item { Text("No history yet.") }
-                items(ui.history.size) { i ->
+                if (ui.history.isEmpty()) item(key = "empty") {
+                    EmptyState("No history yet", "Changes to this assignment will appear here.")
+                }
+                items(ui.history.size, key = { i -> "event-$i" }) { i ->
                     val e = ui.history[i]
-                    Text("${homeworkTime(e.time)} · ${e.actor}: ${historyLabel(e.action)}" + (e.note?.let { " — $it" } ?: ""),
-                        style = MaterialTheme.typography.bodySmall)
+                    HistoryRow(e.actor, e.action, e.note, e.time)
                 }
             }
         }
+    }
+
+    confirm?.let { action ->
+        ConfirmDialog(
+            title = when (action) { "publish" -> "Publish this assignment?"; "close" -> "Close this assignment?"; else -> "Archive this assignment?" },
+            body = when (action) {
+                "publish" -> "Students of ${ui.selected?.division} will see it and be notified. Its class and issue date can't change afterwards."
+                "close" -> "Students can no longer hand in work (except work you return for correction). Marking stays open."
+                else -> "It moves out of your active list. Students keep seeing their own work and results."
+            },
+            confirm = action.replaceFirstChar { it.uppercase() },
+            onConfirm = { confirm = null; vm.lifecycle(action) },
+            onDismiss = { confirm = null },
+            danger = action != "publish")
     }
 }
 
@@ -272,94 +311,127 @@ internal fun historyLabel(action: String) = when (action) {
     "REEVALUATE" -> "changed marks"; "RETURN" -> "returned work for correction"; else -> action.lowercase()
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.listPage(ui: FacultyHomeworkUi, vm: FacultyHomeworkViewModel, busy: Boolean) {
-    item {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(vm::newForm, enabled = !busy && ui.classes.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Create assignment") }
+/** One history entry: who did what, the note, and when. */
+@Composable
+private fun HistoryRow(actor: String, action: String, note: String?, time: String) {
+    ListRow("$actor ${historyLabel(action)}", subtitle = note, meta = homeworkTime(time), icon = CampusIcons.Clock)
+}
+
+private fun LazyListScope.listPage(ui: FacultyHomeworkUi, vm: FacultyHomeworkViewModel, busy: Boolean) {
+    item(key = "create") {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PrimaryButton("Create assignment", vm::newForm, enabled = !busy && ui.classes.isNotEmpty(), icon = CampusIcons.Plus)
             if (ui.loaded && ui.classes.isEmpty()) {
-                Text("You have no active classes. Your College Admin assigns your subjects and divisions.",
-                    style = MaterialTheme.typography.bodySmall)
+                MessageBanner("You have no active classes. Your College Admin assigns your subjects and divisions.", MessageKind.Info)
             }
+        }
+    }
+    item(key = "filters") {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SearchField(ui.query, vm::setQuery, "Search titles", onSearch = { if (!busy) vm.search() })
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 HomeworkChoice("Class", ui.classes.map { it.classId to "${it.subjectCode} · ${it.division}" }, ui.classFilter,
                     enabled = !busy) { vm.setClassFilter(it) }
                 HomeworkChoice("Status", STATUS_FILTERS, ui.statusFilter, enabled = !busy, allLabel = "Active") { vm.setStatusFilter(it) }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(ui.query, vm::setQuery, label = { Text("Search titles") }, singleLine = true,
-                    modifier = Modifier.weight(1f))
-                OutlinedButton(vm::search, enabled = !busy) { Text("Search") }
+        }
+    }
+    if (ui.loaded && ui.items.isEmpty() && !busy) item(key = "empty") {
+        if (ui.query.isBlank() && ui.statusFilter == null && ui.classFilter == null)
+            EmptyState("No assignments yet", "Create one for a class you teach.")
+        else EmptyState("Nothing found", "No assignments match these filters.")
+    }
+    items(ui.items, key = { "hw-${it.id}" }) { item -> HomeworkCard(item, !busy) { vm.open(item) } }
+    if (ui.hasMore) item(key = "more") { SecondaryButton("Load more", vm::loadMore, enabled = !busy) }
+}
+
+/** The create/edit form, split into a few cards: what, when, and what students may hand in. */
+@OptIn(ExperimentalLayoutApi::class)
+private fun LazyListScope.formPage(ui: FacultyHomeworkUi, vm: FacultyHomeworkViewModel, busy: Boolean) {
+    val form = ui.form ?: return
+    val locked = form.id != null && form.published
+    if (locked) item(key = "locked") {
+        MessageBanner("Published: the class and issue date are fixed, the deadline can only move later, and maximum marks " +
+            "lock once work is marked.", MessageKind.Info)
+    }
+    item(key = "what") {
+        InfoCard {
+            if (locked) {
+                ui.selected?.let { InfoRow("Class", "${it.subjectCode} · ${it.subject} · ${it.division}") }
+            } else {
+                HomeworkChoice("Class", ui.classes.map { it.classId to "${it.subjectCode} · ${it.subject} · ${it.division}" },
+                    form.classId, enabled = !busy, allLabel = null) { id -> vm.updateForm { it.copy(classId = id) } }
+                ui.classes.firstOrNull { it.classId == form.classId }?.let {
+                    Text("${it.program} · ${it.academicYear} · ${it.semester}", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            OutlinedTextField(form.title, { t -> vm.updateForm { it.copy(title = t) } }, label = { Text("Title") },
+                singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small)
+            OutlinedTextField(form.description, { t -> vm.updateForm { it.copy(description = t) } }, label = { Text("Description") },
+                enabled = !busy, minLines = 2, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small)
+            OutlinedTextField(form.instructions, { t -> vm.updateForm { it.copy(instructions = t) } }, label = { Text("Instructions") },
+                enabled = !busy, minLines = 2, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small)
+        }
+    }
+    item(key = "when-header") { SectionHeader("Dates") }
+    item(key = "when") {
+        InfoCard {
+            FieldLabel("Issue date (leave empty for now)")
+            DateTimeRow(form.issueDate, form.issueTime, !busy && !locked, "2026-12-01", "09:00",
+                { d -> vm.updateForm { it.copy(issueDate = d) } }) { t -> vm.updateForm { it.copy(issueTime = t) } }
+            FieldLabel("Deadline")
+            DateTimeRow(form.dueDate, form.dueTime, !busy, "2026-12-15", "23:59",
+                { d -> vm.updateForm { it.copy(dueDate = d) } }) { t -> vm.updateForm { it.copy(dueTime = t) } }
+            SwitchRow("Accept late work (marked late) until a cut-off", form.lateAllowed, !busy) { on ->
+                vm.updateForm { it.copy(lateAllowed = on) }
+            }
+            if (form.lateAllowed) DateTimeRow(form.lateDate, form.lateTime, !busy, "2026-12-20", "23:59",
+                { d -> vm.updateForm { it.copy(lateDate = d) } }) { t -> vm.updateForm { it.copy(lateTime = t) } }
+            SwitchRow("Let students resubmit until the deadline (earlier attempts are kept)", form.resubmit, !busy) { on ->
+                vm.updateForm { it.copy(resubmit = on) }
             }
         }
     }
-    if (ui.loaded && ui.items.isEmpty() && !busy) item {
-        Text(if (ui.query.isBlank() && ui.statusFilter == null && ui.classFilter == null)
-            "No assignments yet. Create one for a class you teach." else "No assignments match these filters.")
+    item(key = "work-header") { SectionHeader("Marks and files") }
+    item(key = "work") {
+        InfoCard {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(form.maxMarks, { t -> vm.updateForm { it.copy(maxMarks = t) } }, label = { Text("Maximum marks") },
+                    singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small)
+                OutlinedTextField(form.maxSizeMb, { t -> vm.updateForm { it.copy(maxSizeMb = t) } }, label = { Text("File limit (MB)") },
+                    singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small)
+            }
+            FieldLabel("File types students may upload")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                HOMEWORK_FORMATS.forEach { (key, label) ->
+                    FilterChip(key in form.formats, {
+                        vm.updateForm { it.copy(formats = if (key in it.formats) it.formats - key else it.formats + key) }
+                    }, { Text(label) }, enabled = !busy)
+                }
+            }
+        }
     }
-    items(ui.items, key = { it.id }) { item -> HomeworkCard(item, !busy) { vm.open(item) } }
-    if (ui.hasMore) item { OutlinedButton(vm::loadMore, enabled = !busy) { Text("Load more") } }
+    item(key = "save") {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            ui.formError?.let { MessageBanner(it, MessageKind.Error) }
+            PrimaryButton(if (form.id == null) "Save as draft" else "Save changes", vm::save, enabled = !busy, icon = CampusIcons.Check)
+        }
+    }
 }
 
 @Composable
-private fun FormPage(ui: FacultyHomeworkUi, vm: FacultyHomeworkViewModel, busy: Boolean) {
-    val form = ui.form ?: return
-    val locked = form.id != null && form.published
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (locked) {
-            Text("Published: the class and issue date are fixed, the deadline can only move later, and maximum marks lock once work is marked.",
-                style = MaterialTheme.typography.bodySmall)
-            ui.selected?.let { Text("Class: ${it.subjectCode} · ${it.subject} · ${it.division}") }
-        } else {
-            HomeworkChoice("Class", ui.classes.map { it.classId to "${it.subjectCode} · ${it.subject} · ${it.division}" },
-                form.classId, enabled = !busy, allLabel = null) { id -> vm.updateForm { it.copy(classId = id) } }
-            ui.classes.firstOrNull { it.classId == form.classId }?.let {
-                Text("${it.program} · ${it.academicYear} · ${it.semester}", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-        OutlinedTextField(form.title, { t -> vm.updateForm { it.copy(title = t) } }, label = { Text("Title") },
-            singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(form.description, { t -> vm.updateForm { it.copy(description = t) } }, label = { Text("Description") },
-            enabled = !busy, minLines = 2, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(form.instructions, { t -> vm.updateForm { it.copy(instructions = t) } }, label = { Text("Instructions") },
-            enabled = !busy, minLines = 2, modifier = Modifier.fillMaxWidth())
-        Text("Issue date (leave empty for now)", style = MaterialTheme.typography.titleSmall)
-        DateTimeRow(form.issueDate, form.issueTime, !busy && !locked, "2026-12-01", "09:00",
-            { d -> vm.updateForm { it.copy(issueDate = d) } }) { t -> vm.updateForm { it.copy(issueTime = t) } }
-        Text("Deadline", style = MaterialTheme.typography.titleSmall)
-        DateTimeRow(form.dueDate, form.dueTime, !busy, "2026-12-15", "23:59",
-            { d -> vm.updateForm { it.copy(dueDate = d) } }) { t -> vm.updateForm { it.copy(dueTime = t) } }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(form.maxMarks, { t -> vm.updateForm { it.copy(maxMarks = t) } }, label = { Text("Maximum marks") },
-                singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f))
-            OutlinedTextField(form.maxSizeMb, { t -> vm.updateForm { it.copy(maxSizeMb = t) } }, label = { Text("File limit (MB)") },
-                singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f))
-        }
-        Text("File types students may upload", style = MaterialTheme.typography.titleSmall)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            HOMEWORK_FORMATS.forEach { (key, label) ->
-                FilterChip(key in form.formats, {
-                    vm.updateForm { it.copy(formats = if (key in it.formats) it.formats - key else it.formats + key) }
-                }, { Text(label) }, enabled = !busy)
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(form.lateAllowed, { on -> vm.updateForm { it.copy(lateAllowed = on) } }, enabled = !busy)
-            Spacer(Modifier.width(8.dp))
-            Text("Accept late work (marked late) until a cut-off")
-        }
-        if (form.lateAllowed) DateTimeRow(form.lateDate, form.lateTime, !busy, "2026-12-20", "23:59",
-            { d -> vm.updateForm { it.copy(lateDate = d) } }) { t -> vm.updateForm { it.copy(lateTime = t) } }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(form.resubmit, { on -> vm.updateForm { it.copy(resubmit = on) } }, enabled = !busy)
-            Spacer(Modifier.width(8.dp))
-            Text("Let students resubmit until the deadline (earlier attempts are kept)")
-        }
-        ui.formError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Button(vm::save, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-            Text(if (form.id == null) "Save as draft" else "Save changes")
-        }
+private fun FieldLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun SwitchRow(text: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Switch(checked, onChange, enabled = enabled)
     }
 }
 
@@ -368,8 +440,19 @@ private fun DateTimeRow(date: String, time: String, enabled: Boolean, dateHint: 
                         onDate: (String) -> Unit, onTime: (String) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(date, onDate, label = { Text("Date") }, placeholder = { Text(dateHint) }, singleLine = true,
-            enabled = enabled, modifier = Modifier.weight(3f))
+            enabled = enabled, modifier = Modifier.weight(3f), shape = MaterialTheme.shapes.small)
         OutlinedTextField(time, onTime, label = { Text("Time") }, placeholder = { Text(timeHint) }, singleLine = true,
-            enabled = enabled, modifier = Modifier.weight(2f))
+            enabled = enabled, modifier = Modifier.weight(2f), shape = MaterialTheme.shapes.small)
+    }
+}
+
+/** Six roster filters do not fit a fixed tab row on a phone, so these scroll sideways like the student tabs. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RosterTabs(titles: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    PrimaryScrollableTabRow(selectedTabIndex = selected, containerColor = Color.Transparent, edgePadding = 0.dp) {
+        titles.forEachIndexed { index, title ->
+            Tab(selected == index, { onSelect(index) }, text = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+        }
     }
 }

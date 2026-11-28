@@ -233,7 +233,7 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, open: (StudentArea,
         item(key = "shortcuts") {
             Column(Modifier.appear(4), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionHeader("Everything")
-                val tiles = listOf(
+                ShortcutGrid(listOf(
                     Shortcut("Timetable", CampusIcons.Calendar, 0) { open(StudentArea.TIMETABLE, null) },
                     Shortcut("Attendance", CampusIcons.Checklist, 0) { open(StudentArea.ATTENDANCE, null) },
                     Shortcut("Assignments", CampusIcons.Homework, badges.assignments) { open(StudentArea.HOMEWORK, null) },
@@ -242,13 +242,7 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, open: (StudentArea,
                     Shortcut("Chats", CampusIcons.Chat, badges.chats) { open(StudentArea.CHATS, null) },
                     Shortcut("Skill Exchange", CampusIcons.Handshake, badges.skills) { open(StudentArea.SKILLS, null) },
                     Shortcut("Notices", CampusIcons.Megaphone, badges.notices) { open(StudentArea.ANNOUNCEMENTS, null) },
-                )
-                tiles.chunked(3).forEach { row ->
-                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        row.forEach { ShortcutTile(it, Modifier.weight(1f).fillMaxHeight()) }
-                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
+                ))
             }
         }
 
@@ -261,69 +255,6 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, open: (StudentArea,
                     Icon(CampusIcons.Logout, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Sign out")
                 }
             }
-        }
-    }
-}
-
-internal class Shortcut(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val badge: Long, val onClick: () -> Unit)
-
-/** A square shortcut: icon in a soft circle, label below, a small count when something is new. */
-@Composable
-internal fun ShortcutTile(shortcut: Shortcut, modifier: Modifier = Modifier) {
-    val scheme = MaterialTheme.colorScheme
-    Surface(onClick = shortcut.onClick, modifier = modifier.heightIn(min = 100.dp), shape = MaterialTheme.shapes.medium,
-        color = scheme.surfaceContainerLowest, border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.7f))) {
-        Column(Modifier.padding(vertical = 14.dp, horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box {
-                Surface(shape = MaterialTheme.shapes.small, color = scheme.primaryContainer, contentColor = scheme.onPrimaryContainer) {
-                    Icon(shortcut.icon, null, Modifier.padding(10.dp).size(22.dp))
-                }
-                if (shortcut.badge > 0) Surface(Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-6).dp),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(50), color = scheme.error, contentColor = scheme.onError) {
-                    Text(if (shortcut.badge > 99) "99+" else shortcut.badge.toString(), Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                        style = MaterialTheme.typography.labelSmall)
-                }
-            }
-            Text(shortcut.label, style = MaterialTheme.typography.labelLarge, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-/** A key number with a label and a short line under it; tapping opens the related page. */
-@Composable
-internal fun NumberTile(label: String, value: String, caption: String, tone: Tone, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val accent = when (tone) {
-        Tone.Danger -> scheme.error
-        Tone.Warning -> scheme.secondary
-        Tone.Positive -> scheme.tertiary
-        else -> scheme.primary
-    }
-    Surface(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.medium, color = scheme.surfaceContainerLowest,
-        border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.7f))) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.headlineMedium, color = accent, maxLines = 1)
-            Text(caption, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-/** A titled card on the dashboard with an optional link on the right. */
-@Composable
-internal fun HomeCard(title: String, modifier: Modifier = Modifier, action: String? = null, onAction: (() -> Unit)? = null,
-                      content: @Composable ColumnScope.() -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Surface(modifier.fillMaxWidth().animateContentSize(), shape = MaterialTheme.shapes.medium, color = scheme.surfaceContainerLowest,
-        border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.7f))) {
-        Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 44.dp)) {
-                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                if (action != null && onAction != null) TextButton(onAction) { Text(action) }
-            }
-            Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
         }
     }
 }

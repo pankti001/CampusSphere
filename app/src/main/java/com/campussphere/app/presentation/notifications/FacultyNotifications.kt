@@ -12,14 +12,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -34,6 +31,7 @@ import com.campussphere.app.data.remote.api.FacultyNotice
 import com.campussphere.app.data.repository.FacultyNotificationRepository
 import com.campussphere.app.data.repository.TimetableFailure
 import com.campussphere.app.presentation.materials.materialTime
+import com.campussphere.app.ui.brand.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -130,51 +128,54 @@ fun FacultyNotificationsScreen(repo: FacultyNotificationRepository, auth: () -> 
     LaunchedEffect(vm) { vm.load() }
     BackHandler(onBack = exit)
 
-    LazyColumn(Modifier.fillMaxSize().safeDrawingPadding(), contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item {
-            TextButton(exit) { Text("Back") }
-            Text("Notifications", style = MaterialTheme.typography.headlineMedium)
-            Text("Your class assignments and timetable changes.", style = MaterialTheme.typography.bodyMedium)
-            if (ui.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-            ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 8.dp)) {
-                FilterChip(!ui.unreadOnly, { vm.setUnreadOnly(false) }, { Text("All") })
-                FilterChip(ui.unreadOnly, { vm.setUnreadOnly(true) }, { Text("Unread") })
-                Spacer(Modifier.weight(1f))
-                if (ui.unread > 0) TextButton(vm::markAllRead, enabled = !ui.loading) { Text("Mark all read") }
+    // "All" and "Unread" each keep their own scroll position.
+    CampusPage(
+        title = "Notifications",
+        onBack = exit,
+        subtitle = "Class assignments and timetable changes",
+        stateKey = if (ui.unreadOnly) "list-unread" else "list-all",
+        busy = ui.loading,
+        error = ui.error,
+        onRetry = vm::load,
+    ) {
+        item(key = "timetable") { SecondaryButton("Open my timetable", openTimetable, icon = CampusIcons.Calendar) }
+        item(key = "tabs") { CampusTabs(listOf("All", "Unread"), if (ui.unreadOnly) 1 else 0) { vm.setUnreadOnly(it == 1) } }
+        if (ui.unread > 0) item(key = "unread") {
+            SectionHeader(if (ui.unread == 1) "1 unread" else "${ui.unread} unread") {
+                TextButton(vm::markAllRead, enabled = !ui.loading) { Text("Mark all read") }
             }
-            OutlinedButton(openTimetable, modifier = Modifier.fillMaxWidth()) { Text("Open my timetable") }
         }
-        if (ui.loaded && ui.notices.isEmpty() && ui.error == null) item {
-            Text(if (ui.unreadOnly) "No unread notifications." else "No notifications yet. You will be told when a timetable assigns or changes your classes.")
+        if (ui.loaded && ui.notices.isEmpty() && ui.error == null) item(key = "empty") {
+            if (ui.unreadOnly) EmptyState("No unread notifications", "You're all caught up.")
+            else EmptyState("No notifications yet", "You'll be told when a timetable assigns or changes your classes.")
         }
-        items(ui.notices, key = { it.id }) { n ->
+        items(ui.notices, key = { "n" + it.id }) { n ->
             val unread = n.readAt == null
-            OutlinedCard(onClick = { vm.open(n) }, modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.outlinedCardColors(containerColor = if (unread) MaterialTheme.colorScheme.secondaryContainer
-                                                                         else MaterialTheme.colorScheme.surface)) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.small) {
-                            Text(noticeKind(n.kind), Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelMedium)
-                        }
-                        if (unread) Text("Unread", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Text(n.title, style = MaterialTheme.typography.titleSmall,
-                        fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal)
-                    Text(n.body, style = MaterialTheme.typography.bodyMedium, maxLines = if (ui.expanded == n.id) 20 else 2)
-                    if (ui.expanded == n.id) {
-                        Text("${n.program} · ${n.semester} · Division ${n.division} · ${n.academicYear}", style = MaterialTheme.typography.bodySmall)
-                        Text("Starts ${n.startsOn}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Text(materialTime(n.createdAt), style = MaterialTheme.typography.bodySmall)
+            val open = ui.expanded == n.id
+            // Tapping a notice opens its details under it and marks it as read; tapping again closes them.
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                ListRow(n.title,
+                    subtitle = if (open) null else n.body,
+                    meta = noticeKind(n.kind) + " · " + materialTime(n.createdAt),
+                    icon = noticeIcon(n.kind),
+                    chip = { if (unread) StatusChip("New", Tone.Accent) },
+                    onClick = { vm.open(n) })
+                if (open) InfoCard {
+                    Text(n.body, style = MaterialTheme.typography.bodyMedium)
+                    InfoRow("Class", "${n.program} · ${n.semester} · Division ${n.division} · ${n.academicYear}")
+                    InfoRow("Starts", n.startsOn)
                 }
             }
         }
     }
+}
+
+private fun noticeIcon(kind: String): ImageVector = when (kind) {
+    "ASSIGNED" -> CampusIcons.Calendar
+    "CHANGED" -> CampusIcons.Clock
+    "REASSIGNED" -> CampusIcons.Users
+    "CANCELLED" -> CampusIcons.Close
+    else -> CampusIcons.Bell
 }
 
 // ---- Phone notification bar ----

@@ -2,14 +2,12 @@ package com.campussphere.app.presentation.skills
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
@@ -24,9 +22,7 @@ import com.campussphere.app.data.remote.api.FacultyLearningNotice
 import com.campussphere.app.data.remote.api.FacultyLearningRequest
 import com.campussphere.app.data.repository.*
 import com.campussphere.app.presentation.chat.chatTime
-import com.campussphere.app.ui.brand.EmptyState
-import com.campussphere.app.ui.brand.IconBadge
-import com.campussphere.app.ui.brand.appear
+import com.campussphere.app.ui.brand.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -144,100 +140,143 @@ fun FacultyLearningScreen(repo: FacultyLearningRepository, auth: () -> String, l
     BackHandler { if (!ui.busy && !vm.back()) exit() }
 
     ui.reason?.let { draft ->
-        AlertDialog(onDismissRequest = { vm.back() },
-            title = { Text(if (draft.cancel) "Cancel this session?" else "Decline this request?") },
-            text = {
-                OutlinedTextField(draft.reason, { vm.editReason(draft.copy(reason = it)) }, Modifier.fillMaxWidth(), minLines = 2,
-                    label = { Text("Reason for the students (optional)") })
-            },
-            confirmButton = { TextButton(vm::finishReason, enabled = !ui.busy) { Text(if (draft.cancel) "Cancel session" else "Decline") } },
-            dismissButton = { TextButton({ vm.back() }) { Text("Back") } })
+        FacultyReasonDialog(draft, ui.busy, edit = { vm.editReason(it) }, done = vm::finishReason, dismiss = { vm.back() })
     }
 
-    Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton({ if (!vm.back()) exit() }, enabled = !ui.busy) { Text("Back") }
-            Text(when (ui.page) { FacultyLearningPage.LIST -> "Students want to learn"; FacultyLearningPage.NOTICES -> "Notifications"
-                FacultyLearningPage.DETAIL -> ui.detail?.request?.topic ?: "Request" },
-                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1)
-            if (ui.page == FacultyLearningPage.LIST) BadgedBox(badge = { if (ui.unread > 0) Badge { Text("${ui.unread}") } }) {
-                TextButton(vm::openNotices, enabled = !ui.busy) { Text("🔔") }
-            }
-        }
-        if (ui.busy) LinearProgressIndicator(Modifier.fillMaxWidth()) else Spacer(Modifier.height(4.dp))
-        listOfNotNull(ui.error?.let { it to true }, ui.notice?.let { it to false }).forEach { (text, bad) ->
-            Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), colors = CardDefaults.cardColors(
-                containerColor = if (bad) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer)) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(text, Modifier.weight(1f)); TextButton(vm::clearMessages) { Text("OK") }
+    // The list, the notifications and each opened request keep their own scroll position.
+    CampusPage(
+        title = when (ui.page) {
+            FacultyLearningPage.LIST -> "Students want to learn"
+            FacultyLearningPage.NOTICES -> "Notifications"
+            FacultyLearningPage.DETAIL -> ui.detail?.request?.topic ?: "Request"
+        },
+        subtitle = when (ui.page) {
+            FacultyLearningPage.LIST -> "Topics students asked you to teach"
+            FacultyLearningPage.NOTICES -> null
+            FacultyLearningPage.DETAIL -> ui.detail?.request?.let { facultyPlural(it.students, "student") + " want this" }
+        },
+        onBack = { if (!vm.back()) exit() },
+        backEnabled = !ui.busy,
+        busy = ui.busy,
+        stateKey = when (ui.page) {
+            FacultyLearningPage.LIST -> "list"
+            FacultyLearningPage.NOTICES -> "notices"
+            FacultyLearningPage.DETAIL -> "detail-${ui.detail?.request?.id}"
+        },
+        actions = {
+            if (ui.page == FacultyLearningPage.LIST) IconButton(vm::openNotices, enabled = !ui.busy) {
+                BadgedBox(badge = { if (ui.unread > 0) Badge { Text("${ui.unread}") } }) {
+                    Icon(CampusIcons.Bell, "Notifications")
                 }
             }
+        },
+    ) {
+        // Messages keep their dismiss action, as before.
+        ui.error?.let { text ->
+            item(key = "fl-error") { MessageBanner(text, MessageKind.Error, actionLabel = "Dismiss", onAction = vm::clearMessages) }
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            when (ui.page) {
-                FacultyLearningPage.LIST -> {
-                    if (ui.loaded && ui.requests.isEmpty()) item {
-                        EmptyState("No requests yet", "When students ask you to teach a topic, it appears here with how many want it.")
-                    }
-                    items(ui.requests, key = { it.id }) { r -> FacultyCard(r, !ui.busy) { vm.open(r.id) } }
+        ui.notice?.let { text ->
+            item(key = "fl-notice") { MessageBanner(text, MessageKind.Success, actionLabel = "Dismiss", onAction = vm::clearMessages) }
+        }
+        when (ui.page) {
+            FacultyLearningPage.LIST -> {
+                if (ui.loaded && ui.requests.isEmpty()) item(key = "empty") {
+                    EmptyState("No requests yet", "When students ask you to teach a topic, it appears here with how many want it.")
                 }
-                FacultyLearningPage.NOTICES -> {
-                    if (ui.notices.isEmpty()) item { EmptyState("No notifications", "New requests, students joining and reminders appear here.") }
-                    items(ui.notices, key = { it.id }) { n ->
-                        Card(onClick = { vm.openNotice(n) }, enabled = !ui.busy, modifier = Modifier.fillMaxWidth().appear(),
-                            colors = CardDefaults.cardColors(containerColor = if (n.readAt == null) MaterialTheme.colorScheme.secondaryContainer
-                                else MaterialTheme.colorScheme.surfaceContainerLowest)) {
-                            Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                IconBadge(when (n.kind) { "NEW" -> "📨"; "JOINED" -> "🙋"; "REMINDER" -> "⏰"; else -> "✖" }, SkillTint)
-                                Column(Modifier.weight(1f)) {
-                                    Text(n.title, fontWeight = if (n.readAt == null) FontWeight.SemiBold else FontWeight.Normal)
-                                    Text(n.body, style = MaterialTheme.typography.bodyMedium)
-                                    Text(chatTime(n.createdAt), style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                    }
+                items(ui.requests, key = { "r" + it.id }) { r -> FacultyCard(r, !ui.busy) { vm.open(r.id) } }
+            }
+            FacultyLearningPage.NOTICES -> {
+                if (ui.notices.isEmpty()) item(key = "empty") {
+                    EmptyState("No notifications", "New requests, students joining and reminders appear here.")
                 }
-                FacultyLearningPage.DETAIL -> ui.detail?.let { d ->
-                    val r = d.request
-                    item {
-                        Card(Modifier.fillMaxWidth().appear(0), colors = CardDefaults.cardColors(containerColor = SkillTint)) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(r.topic, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
-                                Text("${r.students} student" + (if (r.students == 1L) "" else "s") + " want this · asked by ${r.createdBy}",
-                                    color = Color(0xFF334155))
-                                Text(facultyStatusLabel(r.status), fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
-                                if (r.details.isNotBlank()) Text(r.details, color = Color(0xFF0F172A))
-                                if (r.startsAt != null && r.endsAt != null && r.status != "OPEN") Text("🕒 " + skillSessionTime(r.startsAt, r.endsAt) +
-                                    (r.place?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), color = Color(0xFF0F172A))
-                                r.reason?.let { Text("Reason: $it", color = Color(0xFF334155)) }
-                            }
+                items(ui.notices, key = { "n" + it.id }) { n ->
+                    ListRow(n.title,
+                        subtitle = n.body,
+                        meta = chatTime(n.createdAt),
+                        icon = facultyNoticeIcon(n.kind),
+                        chip = { if (n.readAt == null) StatusChip("New", Tone.Accent) },
+                        onClick = { if (!ui.busy) vm.openNotice(n) })
+                }
+            }
+            FacultyLearningPage.DETAIL -> ui.detail?.let { d ->
+                val r = d.request
+                item(key = "detail-summary") {
+                    InfoCard {
+                        StatusChip(facultyStatusLabel(r.status), facultyLearningTone(r.status))
+                        InfoRow("Students", facultyPlural(r.students, "student") + " want this")
+                        InfoRow("Asked by", r.createdBy + " · " + chatTime(r.createdAt))
+                        if (r.details.isNotBlank()) InfoRow("Details", r.details)
+                        if (r.startsAt != null && r.endsAt != null && r.status != "OPEN") {
+                            InfoRow("When", skillSessionTime(r.startsAt, r.endsAt))
+                            facultyWhere(r.mode, r.place)?.let { InfoRow("Where", it) }
                         }
-                    }
-                    if (r.status == "OPEN") item {
-                        val form = ui.acceptForm
-                        if (form == null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(vm::startAccept, enabled = !ui.busy) { Text("Accept and set a time") }
-                            OutlinedButton({ vm.startReason(false) }, enabled = !ui.busy) { Text("Decline") }
-                        } else TimeForm("When will you teach it?", form, ui.acceptError, ui.busy, "Accept", vm::editAccept, vm::accept)
-                    }
-                    if (r.status == "ACCEPTED") item {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (r.canComplete) Button(vm::complete, enabled = !ui.busy) { Text("Mark completed") }
-                            TextButton({ vm.startReason(true) }, enabled = !ui.busy) { Text("Cancel session", color = MaterialTheme.colorScheme.error) }
-                        }
-                    }
-                    item { Text("Students (${d.students.size})", style = MaterialTheme.typography.titleMedium) }
-                    items(d.students, key = { "s" + it.id }) { s ->
-                        Column {
-                            Text(s.name)
-                            s.classLabel?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        }
+                        r.reason?.let { InfoRow("Reason", it) }
                     }
                 }
+                if (r.status == "OPEN") item(key = "detail-open") {
+                    val form = ui.acceptForm
+                    if (form == null) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PrimaryButton("Accept and set a time", vm::startAccept, enabled = !ui.busy, icon = CampusIcons.Calendar)
+                        SecondaryButton("Decline", { vm.startReason(false) }, enabled = !ui.busy, danger = true, icon = CampusIcons.Close)
+                    } else TimeForm("When will you teach it?", form, ui.acceptError, ui.busy, "Accept", vm::editAccept, vm::accept)
+                }
+                if (r.status == "ACCEPTED") item(key = "detail-accepted") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (r.canComplete) PrimaryButton("Mark completed", vm::complete, enabled = !ui.busy, icon = CampusIcons.Check)
+                        SecondaryButton("Cancel session", { vm.startReason(true) }, enabled = !ui.busy, danger = true, icon = CampusIcons.Close)
+                    }
+                }
+                item(key = "students-header") { SectionHeader("Students (${d.students.size})") }
+                items(d.students, key = { "s" + it.id }) { s -> ListRow(s.name, subtitle = s.classLabel, icon = CampusIcons.Users) }
             }
         }
     }
+}
+
+private fun facultyLearningTone(status: String) = when (status) {
+    "OPEN" -> Tone.Warning
+    "ACCEPTED", "COMPLETED" -> Tone.Positive
+    else -> Tone.Danger
+}
+
+private fun facultyNoticeIcon(kind: String): ImageVector = when (kind) {
+    "NEW" -> CampusIcons.Book
+    "JOINED" -> CampusIcons.Users
+    "REMINDER" -> CampusIcons.Clock
+    else -> CampusIcons.Close
+}
+
+private fun facultyPlural(n: Long, one: String) = "$n " + if (n == 1L) one else one + "s"
+
+/** "Online", "In person · Room 12", or just the place when the mode is not known. */
+private fun facultyWhere(mode: String?, place: String?): String? {
+    val p = place?.takeIf { it.isNotBlank() }
+    return when (mode) {
+        null -> p
+        "ONLINE" -> "Online" + (p?.let { " · $it" } ?: "")
+        else -> "In person" + (p?.let { " · $it" } ?: "")
+    }
+}
+
+/** Decline a request, or cancel an accepted session, with an optional reason for the students. */
+@Composable
+private fun FacultyReasonDialog(draft: FacultyReasonDraft, busy: Boolean, edit: (FacultyReasonDraft) -> Unit, done: () -> Unit,
+                                dismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = dismiss,
+        title = { Text(if (draft.cancel) "Cancel this session?" else "Decline this request?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(if (draft.cancel) "Every student who joined will be told." else "The students who asked will be told.")
+                OutlinedTextField(draft.reason, { edit(draft.copy(reason = it)) }, Modifier.fillMaxWidth(), minLines = 2,
+                    label = { Text("Reason for the students (optional)") })
+            }
+        },
+        confirmButton = {
+            TextButton(done, enabled = !busy, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                Text(if (draft.cancel) "Cancel session" else "Decline")
+            }
+        },
+        dismissButton = { TextButton(dismiss) { Text("Back") } })
 }
 
 /** Faculty dashboard card: how many student requests are waiting. */
@@ -258,14 +297,18 @@ fun FacultyLearningCard(repo: FacultyLearningRepository, auth: () -> String, ope
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconBadge("🧑‍🏫", SkillTint)
-            Column(Modifier.weight(1f)) {
+            Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
+                Icon(CampusIcons.Book, null, Modifier.padding(8.dp).size(20.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("Students want to learn", style = MaterialTheme.typography.titleMedium)
                 Text(when (val n = waiting) {
-                    null -> "Loading…"; -1 -> "Not available right now."; 0 -> "No requests waiting for you."
-                    1 -> "1 request is waiting for your reply."; else -> "$n requests are waiting for your reply."
-                } + if (unread > 0) " · $unread new" else "", style = MaterialTheme.typography.bodySmall)
+                    null -> "Loading…"; -1 -> "Not available right now"; 0 -> "No requests waiting for you"
+                    1 -> "1 request is waiting for your reply"; else -> "$n requests are waiting for your reply"
+                }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (unread > 0) StatusChip("$unread new", Tone.Accent)
             TextButton(open) { Text("Open") }
         }
     }
