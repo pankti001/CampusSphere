@@ -3,19 +3,20 @@ package com.campussphere.app.presentation.resources
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelStore
@@ -25,6 +26,7 @@ import com.campussphere.app.data.remote.api.*
 import com.campussphere.app.data.repository.*
 import com.campussphere.app.presentation.materials.UploadState
 import com.campussphere.app.presentation.materials.materialSize
+import com.campussphere.app.ui.brand.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -37,6 +39,10 @@ private data class UnitDraft(val title: String = "", val description: String = "
 private fun actionLabel(action: String) = when (action) {
     "HIDE" -> "Hide from students"; "RESTORE" -> "Restore for students"; "ARCHIVE" -> "Archive"; "REMOVE" -> "Remove"
     else -> action
+}
+
+private fun actionIcon(action: String) = when (action) {
+    "HIDE" -> CampusIcons.Hide; "RESTORE" -> CampusIcons.Eye; "ARCHIVE" -> CampusIcons.Archive; else -> CampusIcons.Trash
 }
 
 private fun eventLabel(action: String) = when (action) {
@@ -56,7 +62,7 @@ fun ManageResourceScreen(repo: ResourceRepository, area: String, auth: () -> Str
     val vm = viewModel<ManageResourceViewModel>(viewModelStoreOwner = owner) { ManageResourceViewModel(repo, area, auth, lost) }
     val context = LocalContext.current
     val faculty = area == "faculty"
-    var page by remember { mutableStateOf(Page.LIST) }
+    var page by rememberSaveable { mutableStateOf(Page.LIST) }
     var moderation by remember { mutableStateOf<String?>(null) }
     var confirmArchive by remember { mutableStateOf(false) }
 
@@ -87,7 +93,7 @@ fun ManageResourceScreen(repo: ResourceRepository, area: String, auth: () -> Str
         val item = vm.selected
         if (uri != null && item != null) vm.download({
             repo.download(auth(), area, ManageResourceViewModel.kindOf(item), item.id, context.contentResolver, uri)
-        }, "Saved ${item.fileName}.")
+        }, "Saved ${item.fileName}")
     }
 
     LaunchedEffect(vm) {
@@ -110,180 +116,180 @@ fun ManageResourceScreen(repo: ResourceRepository, area: String, auth: () -> Str
     }
     BackHandler { if (!vm.busy && !uploading) back() }
 
+    // Each view keeps its own saved state, so the list keeps its place while a PDF preview is open.
+    val views = rememberSaveableStateHolder()
     val previewFile = vm.preview
     if (previewFile != null && item != null) {
-        PdfPreview(previewFile, item.title, vm::closePreview, vm::previewFailed, Modifier.safeDrawingPadding())
+        views.SaveableStateProvider("preview") {
+            PdfPreview(previewFile, item.title, vm::closePreview, vm::previewFailed, Modifier.safeDrawingPadding())
+        }
         return
     }
 
-    LazyColumn(Modifier.fillMaxSize().safeDrawingPadding().imePadding(), contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            TextButton(back, enabled = !vm.busy && !uploading) { Text("Back") }
-            Text(when (page) {
+    views.SaveableStateProvider("page") {
+        CampusPage(
+            title = when (page) {
                 Page.UPLOAD -> if (formKind == SYLLABUS) "Upload syllabus" else "Upload question paper"
                 Page.EDIT -> "Edit details"
-                Page.UNITS -> "Unit-wise syllabus"
+                Page.UNITS -> "Units"
                 Page.REPLACE -> "Replace PDF"
-                Page.DETAIL -> if (item?.kind == "PAPER") "Question paper" else "Syllabus"
+                Page.DETAIL -> item?.let { if (it.kind == "PAPER") paperHeading(it) else it.title } ?: ""
                 Page.COVERAGE -> "Syllabus coverage"
-                Page.STATS -> "Upload statistics"
-                Page.LIST -> if (faculty) "My syllabus & papers" else "College syllabus & papers"
-            }, style = MaterialTheme.typography.headlineMedium)
-            if (vm.loading || vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-            vm.error?.let {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(it, color = MaterialTheme.colorScheme.onErrorContainer)
-                        TextButton({
-                            when (page) {
-                                Page.DETAIL -> vm.refreshSelected()
-                                Page.COVERAGE -> vm.loadCoverage()
-                                Page.STATS -> vm.loadStats()
-                                else -> vm.load()
-                            }
-                        }, enabled = !vm.loading && !vm.busy) { Text("Retry") }
-                    }
+                Page.STATS -> "Statistics"
+                Page.LIST -> "Syllabus & papers"
+            },
+            subtitle = when (page) {
+                Page.LIST -> if (faculty) "Your uploads" else "Whole college"
+                Page.DETAIL, Page.EDIT, Page.UNITS, Page.REPLACE -> item?.let { "${it.subjectCode} · ${it.subject}" }
+                else -> null
+            },
+            onBack = back, backEnabled = !vm.busy && !uploading, busy = vm.loading || vm.busy,
+            stateKey = when (page) {
+                Page.LIST -> "list-${vm.kind}-${vm.status}-${vm.query}"
+                Page.DETAIL -> "detail-${item?.kind}-${item?.id}"
+                else -> page.name
+            },
+            error = vm.error,
+            onRetry = {
+                when (page) {
+                    Page.DETAIL -> vm.refreshSelected()
+                    Page.COVERAGE -> vm.loadCoverage()
+                    Page.STATS -> vm.loadStats()
+                    else -> vm.load()
                 }
-            }
-            vm.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp)) }
-        }
+            },
+            notice = vm.notice,
+        ) {
+            when (page) {
+                Page.LIST -> listPage(vm, faculty,
+                    upload = { clearForm(); formKind = vm.kind; vm.resetUpload(); page = Page.UPLOAD },
+                    coverage = { vm.loadCoverage(); page = Page.COVERAGE },
+                    stats = { vm.loadStats(); page = Page.STATS },
+                    open = { vm.open(it); page = Page.DETAIL })
 
-        when (page) {
-            Page.LIST -> listPage(vm, faculty,
-                upload = { clearForm(); formKind = vm.kind; vm.resetUpload(); page = Page.UPLOAD },
-                coverage = { vm.loadCoverage(); page = Page.COVERAGE },
-                stats = { vm.loadStats(); page = Page.STATS },
-                open = { vm.open(it); page = Page.DETAIL })
-
-            Page.DETAIL -> if (item != null) item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ResourceSummary(item)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button({ vm.startPreview(context.cacheDir) }, enabled = !vm.busy, modifier = Modifier.weight(1f)) { Text("Preview") }
-                        OutlinedButton({ save.launch(item.fileName) }, enabled = !vm.busy, modifier = Modifier.weight(1f)) { Text("Download") }
-                    }
-                    if (faculty) {
-                        if (!item.canEdit) Text(when (item.status) {
-                            "HIDDEN", "REMOVED" -> "The College Admin ${resourceStatusLabel(item.status).lowercase()} this, so it can no longer be changed."
-                            else -> "You no longer teach this subject, so this can no longer be changed."
-                        }, style = MaterialTheme.typography.bodySmall)
-                        if (item.canEdit) {
-                            OutlinedButton({
-                                title = item.title; description = item.description.orEmpty()
-                                versionLabel = item.versionLabel.orEmpty(); effectiveFrom = item.effectiveFrom.orEmpty()
-                                examType = item.examType; examLabelText = item.examTypeLabel.orEmpty()
-                                examYear = item.examYear?.toString().orEmpty(); examSession = item.examSession.orEmpty()
-                                formProblem = null; page = Page.EDIT
-                            }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("Edit details") }
-                            if (item.kind != "PAPER") OutlinedButton({
-                                units.clear()
-                                units.addAll(item.units.orEmpty().map {
-                                    UnitDraft(it.title, it.description.orEmpty(), it.topics.orEmpty(), it.objectives.orEmpty(), it.references.orEmpty())
-                                })
-                                formProblem = null; page = Page.UNITS
-                            }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) {
-                                Text(if (item.units.isNullOrEmpty()) "Add unit-wise content" else "Edit units")
+                Page.DETAIL -> if (item != null) item(key = "detail") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ResourceSummary(item)
+                        PrimaryButton("Preview", { vm.startPreview(context.cacheDir) }, enabled = !vm.busy, icon = CampusIcons.Eye)
+                        SecondaryButton("Download", { save.launch(item.fileName) }, enabled = !vm.busy, icon = CampusIcons.Download)
+                        if (faculty) {
+                            if (!item.canEdit) MessageBanner(when (item.status) {
+                                "HIDDEN", "REMOVED" -> "The College Admin ${resourceStatusLabel(item.status).lowercase()} this, so it can't be changed."
+                                else -> "You no longer teach this subject, so this can't be changed."
+                            }, MessageKind.Info)
+                            if (item.canEdit) {
+                                SectionHeader("Manage")
+                                SecondaryButton("Edit details", {
+                                    title = item.title; description = item.description.orEmpty()
+                                    versionLabel = item.versionLabel.orEmpty(); effectiveFrom = item.effectiveFrom.orEmpty()
+                                    examType = item.examType; examLabelText = item.examTypeLabel.orEmpty()
+                                    examYear = item.examYear?.toString().orEmpty(); examSession = item.examSession.orEmpty()
+                                    formProblem = null; page = Page.EDIT
+                                }, enabled = !vm.busy, icon = CampusIcons.Edit)
+                                if (item.kind != "PAPER") SecondaryButton(if (item.units.isNullOrEmpty()) "Add units" else "Edit units", {
+                                    units.clear()
+                                    units.addAll(item.units.orEmpty().map {
+                                        UnitDraft(it.title, it.description.orEmpty(), it.topics.orEmpty(), it.objectives.orEmpty(), it.references.orEmpty())
+                                    })
+                                    formProblem = null; page = Page.UNITS
+                                }, enabled = !vm.busy, icon = CampusIcons.Checklist)
+                                SecondaryButton("Replace PDF", { file = null; vm.resetUpload(); page = Page.REPLACE }, enabled = !vm.busy,
+                                    icon = CampusIcons.Upload)
+                                SecondaryButton(if (item.status == "ARCHIVED") "Publish again" else "Archive", { confirmArchive = true },
+                                    enabled = !vm.busy, icon = CampusIcons.Archive)
                             }
-                            OutlinedButton({ file = null; vm.resetUpload(); page = Page.REPLACE }, enabled = !vm.busy,
-                                modifier = Modifier.fillMaxWidth()) { Text("Replace PDF") }
-                            OutlinedButton({ confirmArchive = true }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) {
-                                Text(if (item.status == "ARCHIVED") "Publish again" else "Archive")
-                            }
-                        }
-                    } else {
-                        val actions = moderationActions(item.status)
-                        if (actions.isNotEmpty()) Text("Moderation", style = MaterialTheme.typography.titleMedium)
-                        actions.forEach { a ->
-                            OutlinedButton({ moderation = a }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text(actionLabel(a)) }
-                        }
-                        if (vm.events.isNotEmpty()) {
-                            Text("History", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-                            vm.events.forEach { e ->
-                                Text("${eventLabel(e.action)} by ${e.actor} · ${resourceTime(e.time)}" +
-                                    (e.note?.let { "\n“$it”" } ?: ""), style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                    val units = item.units.orEmpty()
-                    if (item.kind != "PAPER" && units.isNotEmpty()) {
-                        Text("Units", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-                        units.forEach { Text("Unit ${it.number}: ${it.title}", style = MaterialTheme.typography.bodyMedium) }
-                    }
-                }
-            }
-
-            Page.UPLOAD, Page.EDIT -> item {
-                val editing = page == Page.EDIT
-                val kindNow = if (editing) item?.let { ManageResourceViewModel.kindOf(it) } ?: SYLLABUS else formKind
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (!editing) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(formKind == SYLLABUS, { formKind = SYLLABUS }, { Text("Syllabus") }, enabled = !uploading)
-                            FilterChip(formKind == PAPERS, { formKind = PAPERS }, { Text("Question paper") }, enabled = !uploading)
-                        }
-                        if (vm.subjects.isEmpty()) Text("You have no current teaching assignment, so there is no subject to upload for.")
-                        else Choice("Subject", vm.subjects.map { it.subjectId.toString() to "${it.code} · ${it.name} (${it.semester}, ${it.academicYear})" },
-                            subjectId?.toString(), allLabel = null, modifier = Modifier.fillMaxWidth()) { id -> subjectId = id?.toLong() }
-                    }
-                    if (kindNow == SYLLABUS) {
-                        OutlinedTextField(title, { title = it.take(160) }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true)
-                        OutlinedTextField(versionLabel, { versionLabel = it.take(40) }, Modifier.fillMaxWidth(),
-                            label = { Text("Version label, e.g. 2026-27") }, singleLine = true)
-                        OutlinedTextField(effectiveFrom, { effectiveFrom = it.take(10) }, Modifier.fillMaxWidth(),
-                            label = { Text("Effective from (YYYY-MM-DD, optional)") }, singleLine = true)
-                    } else {
-                        Choice("Exam", EXAM_TYPES, examType, allLabel = null) { examType = it }
-                        if (examType == "OTHER") OutlinedTextField(examLabelText, { examLabelText = it.take(60) }, Modifier.fillMaxWidth(),
-                            label = { Text("Exam name, e.g. Class test") }, singleLine = true)
-                        OutlinedTextField(examYear, { examYear = it.filter(Char::isDigit).take(4) }, Modifier.fillMaxWidth(),
-                            label = { Text("Exam year") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                        OutlinedTextField(examSession, { examSession = it.take(60) }, Modifier.fillMaxWidth(),
-                            label = { Text("Session, e.g. May (optional)") }, singleLine = true)
-                        OutlinedTextField(title, { title = it.take(160) }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true)
-                    }
-                    OutlinedTextField(description, { description = it.take(2000) }, Modifier.fillMaxWidth(),
-                        label = { Text("Description (optional)") }, minLines = 2)
-                    if (!editing) {
-                        OutlinedButton({ pick.launch(arrayOf("application/pdf")) }, enabled = !uploading && !vm.busy) {
-                            Text(file?.let { "PDF: ${it.fileName} (${materialSize(it.bytes.size.toLong())})" } ?: "Choose PDF (up to 10 MB)")
-                        }
-                    }
-                    formProblem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    UploadProgress(vm.upload, vm::retryUpload)
-                    Button({
-                        val problem = if (kindNow == SYLLABUS) syllabusProblem(title, versionLabel, effectiveFrom)
-                            else paperProblem(examType, examLabelText, examYear, title)
-                        formProblem = problem ?: if (!editing && subjectId == null) "Choose the subject."
-                            else if (!editing && file == null) "Choose the PDF file." else null
-                        if (formProblem != null) return@Button
-                        if (editing) {
-                            val current = item ?: return@Button
-                            if (kindNow == SYLLABUS) vm.editSyllabus(current.id, SyllabusEdit(title.trim(), description.trim(),
-                                versionLabel.trim(), effectiveFrom.trim().ifEmpty { null })) { page = Page.DETAIL }
-                            else vm.editPaper(current.id, PaperEdit(examType!!, examLabelText.trim().takeIf { examType == "OTHER" },
-                                examYear.trim().toInt(), examSession.trim(), title.trim(), description.trim())) { page = Page.DETAIL }
                         } else {
-                            val fields = if (kindNow == SYLLABUS) mapOf("title" to title, "description" to description,
-                                "versionLabel" to versionLabel, "effectiveFrom" to effectiveFrom)
-                            else mapOf("examType" to examType, "examTypeLabel" to examLabelText.takeIf { examType == "OTHER" },
-                                "examYear" to examYear, "examSession" to examSession, "title" to title, "description" to description)
-                            // After uploading, show the tab of what was uploaded so it is visible straight away.
-                            vm.startUpload(kindNow, subjectId!!, fields, file!!) { clearForm(); vm.show(kindNow); page = Page.LIST }
+                            val actions = moderationActions(item.status)
+                            if (actions.isNotEmpty()) SectionHeader("Moderation")
+                            actions.forEach { a ->
+                                SecondaryButton(actionLabel(a), { moderation = a }, enabled = !vm.busy, icon = actionIcon(a),
+                                    danger = a == "REMOVE" || a == "HIDE")
+                            }
+                            if (vm.events.isNotEmpty()) {
+                                SectionHeader("History")
+                                InfoCard {
+                                    vm.events.forEach { e ->
+                                        InfoRow("${eventLabel(e.action)} · ${resourceTime(e.time)}", e.actor + (e.note?.let { " · “$it”" } ?: ""))
+                                    }
+                                }
+                            }
                         }
-                    }, enabled = !uploading && !vm.busy, modifier = Modifier.fillMaxWidth()) { Text(if (editing) "Save changes" else "Upload") }
+                        val unitList = item.units.orEmpty()
+                        if (item.kind != "PAPER" && unitList.isNotEmpty()) {
+                            SectionHeader("Units")
+                            unitList.forEach { UnitCard(it) }
+                        }
+                    }
                 }
-            }
 
-            Page.UNITS -> {
-                item { Text("Add the units exactly as in the official syllabus. Students see them below the PDF.",
-                    style = MaterialTheme.typography.bodySmall) }
-                itemsIndexed(units) { index, unit ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Page.UPLOAD, Page.EDIT -> item(key = "form") {
+                    val editing = page == Page.EDIT
+                    val kindNow = if (editing) item?.let { ManageResourceViewModel.kindOf(it) } ?: SYLLABUS else formKind
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (!editing) {
+                            CampusTabs(listOf("Syllabus", "Question paper"), if (formKind == SYLLABUS) 0 else 1) {
+                                if (!uploading) formKind = if (it == 0) SYLLABUS else PAPERS
+                            }
+                            if (vm.subjects.isEmpty()) MessageBanner("You have no current teaching assignment, so there's no subject to upload for.")
+                            else ChoiceChip("Choose subject", vm.subjects.map {
+                                it.subjectId.toString() to "${it.code} · ${it.name} (${it.semester}, ${it.academicYear})"
+                            }, subjectId?.toString(), allLabel = null) { id -> subjectId = id?.toLong() }
+                        }
+                        InfoCard {
+                            if (kindNow == SYLLABUS) {
+                                OutlinedTextField(title, { title = it.take(160) }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true)
+                                OutlinedTextField(versionLabel, { versionLabel = it.take(40) }, Modifier.fillMaxWidth(),
+                                    label = { Text("Version label") }, placeholder = { Text("2026-27") }, singleLine = true)
+                                OutlinedTextField(effectiveFrom, { effectiveFrom = it.take(10) }, Modifier.fillMaxWidth(),
+                                    label = { Text("Effective from (optional)") }, placeholder = { Text("2026-06-01") }, singleLine = true)
+                            } else {
+                                ChoiceChip("Choose exam", EXAM_TYPES, examType, allLabel = null) { examType = it }
+                                if (examType == "OTHER") OutlinedTextField(examLabelText, { examLabelText = it.take(60) }, Modifier.fillMaxWidth(),
+                                    label = { Text("Exam name") }, placeholder = { Text("Class test") }, singleLine = true)
+                                OutlinedTextField(examYear, { examYear = it.filter(Char::isDigit).take(4) }, Modifier.fillMaxWidth(),
+                                    label = { Text("Exam year") }, placeholder = { Text("2025") }, singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                OutlinedTextField(examSession, { examSession = it.take(60) }, Modifier.fillMaxWidth(),
+                                    label = { Text("Session (optional)") }, placeholder = { Text("May") }, singleLine = true)
+                                OutlinedTextField(title, { title = it.take(160) }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true)
+                            }
+                            OutlinedTextField(description, { description = it.take(2000) }, Modifier.fillMaxWidth(),
+                                label = { Text("Description (optional)") }, minLines = 2)
+                        }
+                        if (!editing) SecondaryButton(file?.let { "${it.fileName} · ${materialSize(it.bytes.size.toLong())}" } ?: "Choose PDF (up to 10 MB)",
+                            { pick.launch(arrayOf("application/pdf")) }, enabled = !uploading && !vm.busy, icon = CampusIcons.File)
+                        formProblem?.let { MessageBanner(it, MessageKind.Error) }
+                        UploadProgress(vm.upload, vm::retryUpload)
+                        PrimaryButton(if (editing) "Save changes" else "Upload", {
+                            val problem = if (kindNow == SYLLABUS) syllabusProblem(title, versionLabel, effectiveFrom)
+                                else paperProblem(examType, examLabelText, examYear, title)
+                            formProblem = problem ?: if (!editing && subjectId == null) "Choose the subject."
+                                else if (!editing && file == null) "Choose the PDF file." else null
+                            if (formProblem != null) return@PrimaryButton
+                            if (editing) {
+                                val current = item ?: return@PrimaryButton
+                                if (kindNow == SYLLABUS) vm.editSyllabus(current.id, SyllabusEdit(title.trim(), description.trim(),
+                                    versionLabel.trim(), effectiveFrom.trim().ifEmpty { null })) { page = Page.DETAIL }
+                                else vm.editPaper(current.id, PaperEdit(examType!!, examLabelText.trim().takeIf { examType == "OTHER" },
+                                    examYear.trim().toInt(), examSession.trim(), title.trim(), description.trim())) { page = Page.DETAIL }
+                            } else {
+                                val fields = if (kindNow == SYLLABUS) mapOf("title" to title, "description" to description,
+                                    "versionLabel" to versionLabel, "effectiveFrom" to effectiveFrom)
+                                else mapOf("examType" to examType, "examTypeLabel" to examLabelText.takeIf { examType == "OTHER" },
+                                    "examYear" to examYear, "examSession" to examSession, "title" to title, "description" to description)
+                                // After uploading, show the tab of what was uploaded so it is visible straight away.
+                                vm.startUpload(kindNow, subjectId!!, fields, file!!) { clearForm(); vm.show(kindNow); page = Page.LIST }
+                            }
+                        }, enabled = !uploading && !vm.busy, icon = if (editing) CampusIcons.Check else CampusIcons.Upload)
+                    }
+                }
+
+                Page.UNITS -> {
+                    item(key = "hint") { MessageBanner("Add the units exactly as in the official syllabus. Students see them below the PDF.") }
+                    itemsIndexed(units) { index, unit ->
+                        InfoCard {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Unit ${index + 1}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                Text("Unit ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                                 TextButton({ units.removeAt(index) }, enabled = !vm.busy) { Text("Remove") }
                             }
                             OutlinedTextField(unit.title, { units[index] = unit.copy(title = it.take(160)) }, Modifier.fillMaxWidth(),
@@ -298,160 +304,142 @@ fun ManageResourceScreen(repo: ResourceRepository, area: String, auth: () -> Str
                                 label = { Text("Notes (optional)") })
                         }
                     }
-                }
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton({ units.add(UnitDraft()) }, enabled = units.size < 30 && !vm.busy, modifier = Modifier.fillMaxWidth()) {
-                            Text("Add unit")
+                    item(key = "save") {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SecondaryButton("Add unit", { units.add(UnitDraft()) }, enabled = units.size < 30 && !vm.busy, icon = CampusIcons.Plus)
+                            formProblem?.let { MessageBanner(it, MessageKind.Error) }
+                            PrimaryButton("Save units", {
+                                formProblem = if (units.any { it.title.isBlank() }) "Every unit needs a title." else null
+                                val current = item ?: return@PrimaryButton
+                                if (formProblem == null) vm.saveUnits(current.id, units.mapIndexed { i, u ->
+                                    ResourceUnit(i + 1, u.title.trim(), u.description.trim(), u.topics.trim(), u.objectives.trim(), u.references.trim())
+                                }) { page = Page.DETAIL }
+                            }, enabled = !vm.busy, icon = CampusIcons.Check)
                         }
-                        formProblem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        Button({
-                            formProblem = if (units.any { it.title.isBlank() }) "Every unit needs a title." else null
-                            val current = item ?: return@Button
-                            if (formProblem == null) vm.saveUnits(current.id, units.mapIndexed { i, u ->
-                                ResourceUnit(i + 1, u.title.trim(), u.description.trim(), u.topics.trim(), u.objectives.trim(), u.references.trim())
-                            }) { page = Page.DETAIL }
-                        }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("Save units") }
                     }
                 }
-            }
 
-            Page.REPLACE -> item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Use this to correct the PDF of this same version or paper. For a new syllabus version, upload it separately.",
-                        style = MaterialTheme.typography.bodySmall)
-                    OutlinedButton({ pick.launch(arrayOf("application/pdf")) }, enabled = !uploading && !vm.busy) {
-                        Text(file?.let { "PDF: ${it.fileName} (${materialSize(it.bytes.size.toLong())})" } ?: "Choose new PDF (up to 10 MB)")
+                Page.REPLACE -> item(key = "replace") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MessageBanner("Use this to correct the PDF of this same version or paper. For a new syllabus version, upload it separately.")
+                        SecondaryButton(file?.let { "${it.fileName} · ${materialSize(it.bytes.size.toLong())}" } ?: "Choose new PDF (up to 10 MB)",
+                            { pick.launch(arrayOf("application/pdf")) }, enabled = !uploading && !vm.busy, icon = CampusIcons.File)
+                        UploadProgress(vm.upload, vm::retryUpload)
+                        PrimaryButton("Replace", { file?.let { f -> vm.replaceFile(f) { file = null; page = Page.DETAIL } } },
+                            enabled = file != null && !uploading && !vm.busy, icon = CampusIcons.Upload)
                     }
-                    UploadProgress(vm.upload, vm::retryUpload)
-                    Button({ file?.let { f -> vm.replaceFile(f) { file = null; page = Page.DETAIL } } },
-                        enabled = file != null && !uploading && !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("Replace") }
                 }
-            }
 
-            Page.COVERAGE -> coveragePage(vm.coverage, vm.busy)
-            Page.STATS -> vm.stats?.let { s -> item { StatsView(s) } }
+                Page.COVERAGE -> coveragePage(vm.coverage, vm.busy)
+                Page.STATS -> vm.stats?.let { s -> item(key = "stats") { StatsView(s) } }
+            }
         }
     }
 
     if (confirmArchive && item != null) {
         val archiving = item.status != "ARCHIVED"
-        AlertDialog(onDismissRequest = { confirmArchive = false },
-            title = { Text(if (archiving) "Archive this?" else "Publish again?") },
-            text = { Text(if (archiving) "Students will no longer see it. You can publish it again later."
-                else "Students of this subject will see it again.") },
-            confirmButton = { TextButton({ confirmArchive = false; vm.archive(archiving) }) { Text(if (archiving) "Archive" else "Publish") } },
-            dismissButton = { TextButton({ confirmArchive = false }) { Text("Cancel") } })
+        ConfirmDialog(if (archiving) "Archive this?" else "Publish again?",
+            if (archiving) "Students will no longer see it. You can publish it again later." else "Students of this subject will see it again.",
+            if (archiving) "Archive" else "Publish", { confirmArchive = false; vm.archive(archiving) }, { confirmArchive = false })
     }
 
     moderation?.let { action ->
         var note by remember(action) { mutableStateOf("") }
         val needsNote = moderationNeedsNote(action)
-        AlertDialog(onDismissRequest = { moderation = null },
-            title = { Text(actionLabel(action) + "?") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(when (action) {
-                        "HIDE" -> "Students will no longer see it. You can restore it later. The faculty member sees your reason."
-                        "REMOVE" -> "It is removed for good and can no longer be restored."
-                        "RESTORE" -> "Students of this subject will see it again."
-                        else -> "Students will no longer see it."
-                    })
-                    OutlinedTextField(note, { note = it.take(500) }, Modifier.fillMaxWidth(),
-                        label = { Text(if (needsNote) "Reason (required)" else "Note (optional)") })
-                }
-            },
-            confirmButton = {
-                TextButton({ moderation = null; vm.moderate(action, note) }, enabled = !needsNote || note.trim().length >= 3) {
-                    Text(actionLabel(action))
-                }
-            },
-            dismissButton = { TextButton({ moderation = null }) { Text("Cancel") } })
+        ConfirmDialog(actionLabel(action) + "?", when (action) {
+            "HIDE" -> "Students will no longer see it. You can restore it later. The faculty member sees your reason."
+            "REMOVE" -> "It's removed for good and can't be restored."
+            "RESTORE" -> "Students of this subject will see it again."
+            else -> "Students will no longer see it."
+        }, actionLabel(action), { moderation = null; vm.moderate(action, note) }, { moderation = null },
+            danger = action == "REMOVE" || action == "HIDE", confirmEnabled = !needsNote || note.trim().length >= 3) {
+            OutlinedTextField(note, { note = it.take(500) }, Modifier.fillMaxWidth(),
+                label = { Text(if (needsNote) "Reason (required)" else "Note (optional)") })
+        }
     }
 }
 
 private fun LazyListScope.listPage(vm: ManageResourceViewModel, faculty: Boolean, upload: () -> Unit, coverage: () -> Unit,
                                    stats: () -> Unit, open: (ResourceItem) -> Unit) {
-    item {
+    item(key = "actions") {
+        if (faculty) PrimaryButton("Upload syllabus or paper", upload, enabled = !vm.busy, icon = CampusIcons.Upload)
+        else Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SecondaryButton("Coverage", coverage, Modifier.weight(1f), enabled = !vm.busy, icon = CampusIcons.Checklist)
+            SecondaryButton("Statistics", stats, Modifier.weight(1f), enabled = !vm.busy, icon = CampusIcons.Chart)
+        }
+    }
+    item(key = "tabs") {
+        CampusTabs(listOf("Syllabus", "Question papers"), if (vm.kind == SYLLABUS) 0 else 1) { vm.show(if (it == 0) SYLLABUS else PAPERS) }
+    }
+    item(key = "filters") {
+        var search by remember(vm.kind) { mutableStateOf(vm.query) }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (faculty) Button(upload, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("Upload syllabus or question paper") }
-            else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(coverage, enabled = !vm.busy, modifier = Modifier.weight(1f)) { Text("Coverage") }
-                OutlinedButton(stats, enabled = !vm.busy, modifier = Modifier.weight(1f)) { Text("Statistics") }
-            }
-            TabRow(if (vm.kind == SYLLABUS) 0 else 1) {
-                Tab(vm.kind == SYLLABUS, { vm.show(SYLLABUS) }, text = { Text("Syllabus") })
-                Tab(vm.kind == PAPERS, { vm.show(PAPERS) }, text = { Text("Question papers") })
-            }
-            var search by remember(vm.kind) { mutableStateOf(vm.query) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Choice("Status", RESOURCE_STATUSES, vm.status) { vm.filter(it, search) }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(search, { search = it.take(80) }, Modifier.weight(1f), label = { Text("Search title or subject") },
-                    singleLine = true)
-                TextButton({ vm.filter(vm.status, search) }, enabled = !vm.loading) { Text("Search") }
+            SearchField(search, { search = it.take(80) }, "Search title or subject", onSearch = { vm.filter(vm.status, search) })
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChoiceChip("Status", RESOURCE_STATUSES, vm.status, allLabel = "All statuses") { vm.filter(it, search) }
             }
         }
     }
-    if (vm.loaded && vm.items.isEmpty() && !vm.loading) item {
-        Text(if (faculty) "You have not uploaded any ${if (vm.kind == SYLLABUS) "syllabus" else "question papers"} with these filters yet."
-            else "Nothing found with these filters.")
+    if (vm.loaded && vm.items.isEmpty() && !vm.loading) item(key = "empty") {
+        if (faculty) EmptyState("Nothing uploaded yet", "Upload a syllabus or a past paper for a subject you teach.")
+        else EmptyState("Nothing found", "Try another status or search.")
     }
     items(vm.items, key = { it.kind + it.id }) { r ->
-        OutlinedCard(onClick = { open(r) }, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (r.kind == "PAPER") paperHeading(r) else r.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                    Tag(resourceStatusLabel(r.status), strong = r.status == "PUBLISHED")
-                    if (r.current) Tag("Current", strong = true)
-                }
-                Text("${r.subjectCode} · ${r.subject} · ${r.semester}", style = MaterialTheme.typography.bodySmall)
-                Text((if (r.kind == "PAPER") r.title + " · " else "Version ${r.versionLabel} · ") +
-                    (if (faculty) resourceTime(r.createdAt) else "by ${r.faculty}"), style = MaterialTheme.typography.bodySmall)
-            }
-        }
+        ListRow(if (r.kind == "PAPER") paperHeading(r) else r.title,
+            subtitle = "${r.subjectCode} · ${r.subject}",
+            meta = (if (r.kind == "PAPER") r.title else "Version ${r.versionLabel}") + " · " +
+                (if (faculty) resourceTime(r.createdAt) else r.faculty),
+            icon = CampusIcons.File,
+            chip = { StatusChip(if (r.current && r.status == "PUBLISHED") "Current" else resourceStatusLabel(r.status),
+                if (r.current && r.status == "PUBLISHED") Tone.Accent else resourceTone(r.status)) },
+            onClick = { open(r) })
     }
-    if (vm.more) item {
-        OutlinedButton(vm::loadMore, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("Load more") }
-    }
+    if (vm.more) item(key = "more") { SecondaryButton("Load more", vm::loadMore, enabled = !vm.busy) }
 }
 
 private fun LazyListScope.coveragePage(rows: List<ResourceCoverage>, busy: Boolean) {
     val missing = rows.count { !it.hasCurrentSyllabus }
-    item {
-        Text(if (rows.isEmpty()) (if (busy) "" else "No subjects have been set up yet.")
-            else "${rows.size - missing} of ${rows.size} subjects have a published syllabus · " +
-                "${rows.count { it.papers > 0 }} have question papers", style = MaterialTheme.typography.bodyMedium)
+    if (rows.isEmpty()) {
+        if (!busy) item(key = "empty") { EmptyState("No subjects yet", "Set up programs, semesters and subjects first.") }
+        return
     }
+    item(key = "summary") {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatTile("With syllabus", "${rows.size - missing} of ${rows.size}", Modifier.weight(1f))
+            StatTile("With papers", "${rows.count { it.papers > 0 }} of ${rows.size}", Modifier.weight(1f))
+        }
+    }
+    if (missing > 0) item(key = "missing") { SectionHeader("Missing a syllabus") }
     items(rows.sortedWith(compareBy<ResourceCoverage> { it.hasCurrentSyllabus }.thenBy { it.code }), key = { it.subjectId }) { c ->
-        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor =
-            if (c.hasCurrentSyllabus) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.errorContainer)) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("${c.code} · ${c.subject}", fontWeight = FontWeight.SemiBold)
-                Text("${c.program} · ${c.semester} · ${c.academicYear}", style = MaterialTheme.typography.bodySmall)
-                Text((if (c.hasCurrentSyllabus) "Published syllabus" else "No published syllabus") +
-                    " · ${c.papers} question paper" + (if (c.papers == 1L) "" else "s"), style = MaterialTheme.typography.bodySmall)
-            }
+        ListRow("${c.code} · ${c.subject}", subtitle = "${c.program} · ${c.semester} · ${c.academicYear}",
+            meta = "${c.papers} question paper" + if (c.papers == 1L) "" else "s",
+            chip = { if (c.hasCurrentSyllabus) StatusChip("Syllabus", Tone.Positive) else StatusChip("No syllabus", Tone.Warning) })
+    }
+}
+
+@Composable
+private fun StatTile(label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(modifier, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleLarge)
         }
     }
 }
 
 @Composable
 private fun StatsView(s: ResourceStats) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         @Composable fun block(title: String, rows: List<ResourceCount>, empty: String, label: (String) -> String = { it }) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium)
-                    if (rows.isEmpty()) Text(empty, style = MaterialTheme.typography.bodySmall)
-                    val top = rows.maxOfOrNull { it.count }?.coerceAtLeast(1) ?: 1
-                    rows.forEach { r ->
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(label(r.label), Modifier.width(120.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                            LinearProgressIndicator({ r.count.toFloat() / top }, Modifier.weight(1f))
-                            Text(r.count.toString(), style = MaterialTheme.typography.bodySmall)
-                        }
+            SectionHeader(title)
+            InfoCard {
+                if (rows.isEmpty()) Text(empty, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val top = rows.maxOfOrNull { it.count }?.coerceAtLeast(1) ?: 1
+                rows.forEach { r ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(label(r.label), Modifier.width(110.dp), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                        LinearProgressIndicator({ r.count.toFloat() / top }, Modifier.weight(1f))
+                        Text(r.count.toString(), style = MaterialTheme.typography.titleSmall)
                     }
                 }
             }
@@ -464,39 +452,13 @@ private fun StatsView(s: ResourceStats) {
 }
 
 @Composable
-private fun ResourceSummary(item: ResourceItem) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (item.kind == "PAPER") paperHeading(item) else item.title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-            Tag(resourceStatusLabel(item.status), strong = item.status == "PUBLISHED")
-        }
-        if (item.kind == "PAPER") Text(item.title, style = MaterialTheme.typography.titleMedium)
-        else Text(listOfNotNull("Version ${item.versionLabel}", resourceDate(item.effectiveFrom)?.let { "effective from $it" },
-            if (item.current) "current" else null).joinToString(" · "))
-        Text("${item.subjectCode} · ${item.subject}", style = MaterialTheme.typography.bodyMedium)
-        Text("${item.program} · ${item.semester} · ${item.academicYear}", style = MaterialTheme.typography.bodySmall)
-        Text("Uploaded by ${item.faculty} · ${resourceTime(item.createdAt)}", style = MaterialTheme.typography.bodySmall)
-        item.description?.takeIf { it.isNotBlank() }?.let { Text(it) }
-        Text("${item.fileName} · ${materialSize(item.sizeBytes)}", style = MaterialTheme.typography.bodySmall)
-        item.moderationNote?.let {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-                Text("College Admin note: $it", Modifier.padding(12.dp))
-            }
-        }
-    }
-}
-
-@Composable
 private fun UploadProgress(state: UploadState, retry: () -> Unit) {
     when (state) {
-        is UploadState.Uploading -> Column {
+        is UploadState.Uploading -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             LinearProgressIndicator({ state.progress }, Modifier.fillMaxWidth())
             Text("Uploading ${(state.progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
         }
-        is UploadState.Failed -> Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(state.message, Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
-            TextButton(retry) { Text("Retry") }
-        }
+        is UploadState.Failed -> MessageBanner(state.message, MessageKind.Error, actionLabel = "Retry", onAction = retry)
         UploadState.Idle -> {}
     }
 }

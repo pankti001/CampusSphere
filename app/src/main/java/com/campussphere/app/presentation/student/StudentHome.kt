@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import com.campussphere.app.ui.brand.IconBadge
 import com.campussphere.app.ui.brand.appear
+import com.campussphere.app.ui.brand.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -143,180 +144,212 @@ class StudentHomeViewModel(
 }
 
 /** Where a dashboard button leads. */
-enum class StudentArea { TIMETABLE, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, CHATS, SKILLS, RESOURCES }
+enum class StudentArea { TIMETABLE, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, CHATS, SKILLS, RESOURCES, HOMEWORK }
+
+/** Badge numbers for the shortcut grid, worked out from what has loaded (0 when unknown). */
+internal data class StudentBadges(val assignments: Long, val chats: Long, val skills: Long, val notices: Long)
+
+internal fun studentBadges(ui: StudentHomeUi) = StudentBadges(
+    assignments = ui.homework.value?.let { it.pending + it.unreadNotices } ?: 0,
+    chats = ui.chats.value?.sumOf { it.unread } ?: 0,
+    skills = ui.skills.value?.let { it.incomingRequests + it.unreadNotices } ?: 0,
+    notices = ui.announcements.value?.count { it.read == false }?.toLong() ?: 0,
+)
 
 @Composable
-fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Composable () -> Unit,
-                      open: (StudentArea, Long?) -> Unit, onRefreshAccount: () -> Unit, onLogout: () -> Unit) {
-    val owner = remember { object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() } }
-    DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
-    val vm = viewModel<StudentHomeViewModel>(viewModelStoreOwner = owner) { vmFactory() }
+fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, open: (StudentArea, Long?) -> Unit,
+                      onRefreshAccount: () -> Unit, onLogout: () -> Unit, keep: ViewModelStoreOwner? = null) {
+    // With [keep] (owned by the caller), the dashboard's data stays in memory while another page is open. Coming
+    // back, the cards are already full size, so the list returns to exactly where it was and then refreshes.
+    val local = remember { object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() } }
+    DisposableEffect(local) { onDispose { local.viewModelStore.clear() } }
+    val vm = viewModel<StudentHomeViewModel>(viewModelStoreOwner = keep ?: local) { vmFactory() }
     val ui by vm.ui.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.load() }
     val now = ZonedDateTime.now()
+    val badges = studentBadges(ui)
 
-    LazyColumn(Modifier.fillMaxSize().safeDrawingPadding(), contentPadding = PaddingValues(20.dp),
+    LazyColumn(Modifier.fillMaxSize().safeDrawingPadding(), contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { ProfileCard(ui.profile) }
-        item {
-            Panel("✅ Attendance", ui.attendance, "Open", { open(StudentArea.ATTENDANCE, null) }, order = 1, tint = Color(0xFFDCFCE7)) { a ->
-                val overall = a.overall
-                Text(overall.percentage?.let { "${it.stripTrailingZeros().toPlainString()}% overall" } ?: "No sessions yet",
-                    style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
-                    color = when (overall.severity) {
-                        AttendanceSeverity.CRITICAL -> MaterialTheme.colorScheme.error
-                        AttendanceSeverity.WARNING -> MaterialTheme.colorScheme.tertiary
-                        AttendanceSeverity.NORMAL -> MaterialTheme.colorScheme.primary
-                    })
-                Text("${overall.attended} of ${overall.eligible} counted lectures · ${overall.absent} absent")
-                a.subjects.filter { it.summary.percentage != null }.sortedBy { it.summary.percentage }.take(2).forEach {
-                    Text("${it.subject}: ${it.summary.percentage!!.stripTrailingZeros().toPlainString()}%",
-                        style = MaterialTheme.typography.bodySmall)
-                }
+        item(key = "hello") { Greeting(ui.profile) }
+
+        item(key = "numbers") {
+            Row(Modifier.appear(1), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val attendance = ui.attendance.value?.overall
+                NumberTile("Attendance",
+                    value = attendance?.percentage?.let { "${it.stripTrailingZeros().toPlainString()}%" } ?: if (ui.attendance.error != null) "–" else "…",
+                    caption = attendance?.let { "${it.attended} of ${it.eligible} lectures" } ?: ui.attendance.error?.let { "Not available" } ?: "Loading",
+                    tone = when (attendance?.severity) {
+                        AttendanceSeverity.CRITICAL -> Tone.Danger
+                        AttendanceSeverity.WARNING -> Tone.Warning
+                        else -> Tone.Accent
+                    }, modifier = Modifier.weight(1f)) { open(StudentArea.ATTENDANCE, null) }
+                val work = ui.homework.value
+                NumberTile("Assignments",
+                    value = work?.pending?.toString() ?: if (ui.homework.error != null) "–" else "…",
+                    caption = work?.let { "pending · ${it.dueThisWeek} due this week" } ?: ui.homework.error?.let { "Not available" } ?: "Loading",
+                    tone = if ((work?.dueThisWeek ?: 0) > 0) Tone.Warning else Tone.Accent,
+                    modifier = Modifier.weight(1f)) { open(StudentArea.HOMEWORK, null) }
             }
         }
-        item {
-            Panel("🗓 Today", ui.today, "Week", { open(StudentArea.TIMETABLE, null) }, order = 2, tint = Color(0xFFDBE6FF)) { day ->
-                val lessons = day.schedule.slots
+
+        item(key = "today") {
+            HomeCard("Today", action = "Week", onAction = { open(StudentArea.TIMETABLE, null) }, modifier = Modifier.appear(2)) {
+                val day = ui.today.value
                 when {
-                    !day.schedule.enrolled -> Text("You are not enrolled in a class yet.")
-                    lessons.isEmpty() -> Text("No classes today.")
-                    else -> lessons.forEach { slot ->
-                        Text("${slot.start}–${slot.end}  " + if (slot.kind == "LESSON")
-                            listOfNotNull(slot.subject, slot.classroomCode?.let { "room $it" }).joinToString(" · ")
-                        else slot.label ?: "Break", style = MaterialTheme.typography.bodyMedium)
+                    day == null -> SectionStatus(ui.today, "Today's timetable isn't available right now.")
+                    !day.schedule.enrolled -> Muted("You're not enrolled in a class yet.")
+                    day.schedule.slots.isEmpty() -> Muted("No classes today.")
+                    else -> day.schedule.slots.forEach { slot ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("${slot.start}–${slot.end}", Modifier.width(96.dp), style = MaterialTheme.typography.labelLarge,
+                                color = if (slot.kind == "LESSON") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+                            Text(if (slot.kind == "LESSON") listOfNotNull(slot.subject, slot.classroomCode?.let { "room $it" }).joinToString(" · ")
+                                else slot.label ?: "Break", style = MaterialTheme.typography.bodyMedium,
+                                color = if (slot.kind == "LESSON") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
         }
-        item { Box(Modifier.appear(3)) { homeworkCard() } }
-        item {
-            val activities = upcomingActivities(ui.today.value, ui.homework.value, ui.announcements.value, now)
-            Card(Modifier.fillMaxWidth().appear(4), shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        IconBadge("⏭", Color(0xFFEDE9FE)); Text("Upcoming", style = MaterialTheme.typography.titleMedium)
-                    }
-                    if (activities.isEmpty()) Text("Nothing coming up.", style = MaterialTheme.typography.bodySmall)
-                    activities.forEach {
-                        Text("${it.kind}: ${it.title}", fontWeight = FontWeight.Medium)
-                        Text(it.detail, style = MaterialTheme.typography.bodySmall)
+
+        val activities = upcomingActivities(ui.today.value, ui.homework.value, ui.announcements.value, now).take(4)
+        if (activities.isNotEmpty()) item(key = "upcoming") {
+            HomeCard("Coming up", modifier = Modifier.appear(3)) {
+                activities.forEach {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        StatusChip(it.kind, when (it.kind) { "Deadline" -> Tone.Warning; "Lesson" -> Tone.Accent; else -> Tone.Neutral })
+                        Column(Modifier.weight(1f)) {
+                            Text(it.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(it.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
         }
-        item {
-            Panel("💬 Groups and chats", ui.chats, "All chats", { open(StudentArea.CHATS, null) }, order = 5, tint = Color(0xFFFEF3C7)) { list ->
-                val unread = list.sumOf { it.unread }
-                Text(if (unread > 0) "$unread unread message" + (if (unread == 1L) "" else "s") else "No unread messages",
-                    color = if (unread > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                list.filter { it.kind == "CLASS" }.forEach { group ->
-                    OutlinedButton({ open(StudentArea.CHATS, group.id) }) {
-                        Text("Class group: ${group.name}" + if (group.unread > 0) " (${group.unread})" else "",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+
+        item(key = "shortcuts") {
+            Column(Modifier.appear(4), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionHeader("Everything")
+                val tiles = listOf(
+                    Shortcut("Timetable", CampusIcons.Calendar, 0) { open(StudentArea.TIMETABLE, null) },
+                    Shortcut("Attendance", CampusIcons.Checklist, 0) { open(StudentArea.ATTENDANCE, null) },
+                    Shortcut("Assignments", CampusIcons.Homework, badges.assignments) { open(StudentArea.HOMEWORK, null) },
+                    Shortcut("Materials", CampusIcons.Books, 0) { open(StudentArea.MATERIALS, null) },
+                    Shortcut("Syllabus", CampusIcons.Book, 0) { open(StudentArea.RESOURCES, null) },
+                    Shortcut("Chats", CampusIcons.Chat, badges.chats) { open(StudentArea.CHATS, null) },
+                    Shortcut("Skill Exchange", CampusIcons.Handshake, badges.skills) { open(StudentArea.SKILLS, null) },
+                    Shortcut("Notices", CampusIcons.Megaphone, badges.notices) { open(StudentArea.ANNOUNCEMENTS, null) },
+                )
+                tiles.chunked(3).forEach { row ->
+                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEach { ShortcutTile(it, Modifier.weight(1f).fillMaxHeight()) }
+                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
-                list.filter { it.kind != "CLASS" && it.unread > 0 }.take(3).forEach { c ->
-                    TextButton({ open(StudentArea.CHATS, c.id) }) { Text("${c.name ?: "Chat"} (${c.unread})") }
+            }
+        }
+
+        item(key = "footer") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                TextButton({ vm.load(); onRefreshAccount() }) {
+                    Icon(CampusIcons.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Refresh")
                 }
-            }
-        }
-        item {
-            Panel("🤝 Skill Exchange", ui.skills, "Open", { open(StudentArea.SKILLS, null) }, order = 6, tint = Color(0xFFE0F2FE)) { s ->
-                Text(when {
-                    s.incomingRequests > 0 -> "${s.incomingRequests} classmate" + (if (s.incomingRequests == 1L) " wants" else "s want") + " to learn from you"
-                    s.myOffers == 0L -> "Learn from classmates in your college, or teach what you know."
-                    else -> "You offer ${s.myOffers} skill" + if (s.myOffers == 1L) "" else "s"
-                }, color = if (s.incomingRequests > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                s.nextSession?.let {
-                    Text("Next: ${it.skill} with ${it.partner.substringBefore(' ')} · " +
-                        com.campussphere.app.data.repository.skillSessionTime(it.startsAt, it.endsAt), style = MaterialTheme.typography.bodySmall)
+                TextButton(onLogout, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                    Icon(CampusIcons.Logout, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Sign out")
                 }
-                val extras = listOfNotNull(
-                    s.openWants.takeIf { it > 0 }?.let { "🙋 $it classmate post" + (if (it == 1L) "" else "s") + " asking to learn" },
-                    s.groups.takeIf { it > 0 }?.let { "👥 $it learning group" + if (it == 1L) "" else "s" },
-                    s.facultyRequests.takeIf { it > 0 }?.let { "🧑‍🏫 $it faculty request" + if (it == 1L) "" else "s" })
-                if (extras.isNotEmpty()) Text(extras.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
-                if (s.unreadNotices > 0) Text("${s.unreadNotices} new notification" + if (s.unreadNotices == 1L) "" else "s",
-                    style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-            }
-        }
-        item {
-            Panel("📚 Study materials", ui.materials, "Open", { open(StudentArea.MATERIALS, null) }, order = 7, tint = Color(0xFFCCFBF1)) { list ->
-                if (list.isEmpty()) Text("Nothing shared yet.")
-                list.forEach { Text("• ${it.title} (${it.subject})", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            }
-        }
-        item {
-            Panel("📖 Syllabus & question papers", ui.resources, "Open", { open(StudentArea.RESOURCES, null) }, order = 8,
-                tint = Color(0xFFFFEDD5)) { list ->
-                val syllabus = list.count { it.syllabusVersions > 0 }
-                val papers = list.sumOf { it.papers }
-                Text(if (list.isEmpty()) "No subjects yet."
-                    else "Syllabus for $syllabus of ${list.size} subject" + (if (list.size == 1) "" else "s") +
-                        " · $papers question paper" + if (papers == 1L) "" else "s")
-            }
-        }
-        item {
-            Panel("📣 Announcements", ui.announcements, "Open", { open(StudentArea.ANNOUNCEMENTS, null) }, order = 9, tint = Color(0xFFFCE7F3)) { list ->
-                if (list.isEmpty()) Text("No announcements.")
-                list.take(3).forEach {
-                    Text("• ${it.title}" + if (it.read == false) "  (new)" else "", maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        fontWeight = if (it.read == false) FontWeight.SemiBold else FontWeight.Normal)
-                }
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton({ vm.load(); onRefreshAccount() }) { Text("Refresh") }
-                TextButton(onLogout) { Text("Sign out") }
             }
         }
     }
 }
 
+internal class Shortcut(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val badge: Long, val onClick: () -> Unit)
+
+/** A square shortcut: icon in a soft circle, label below, a small count when something is new. */
 @Composable
-private fun ProfileCard(profile: Section<StudentMe>) {
+internal fun ShortcutTile(shortcut: Shortcut, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(onClick = shortcut.onClick, modifier = modifier.heightIn(min = 100.dp), shape = MaterialTheme.shapes.medium,
+        color = scheme.surfaceContainerLowest, border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.7f))) {
+        Column(Modifier.padding(vertical = 14.dp, horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box {
+                Surface(shape = MaterialTheme.shapes.small, color = scheme.primaryContainer, contentColor = scheme.onPrimaryContainer) {
+                    Icon(shortcut.icon, null, Modifier.padding(10.dp).size(22.dp))
+                }
+                if (shortcut.badge > 0) Surface(Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-6).dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(50), color = scheme.error, contentColor = scheme.onError) {
+                    Text(if (shortcut.badge > 99) "99+" else shortcut.badge.toString(), Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                        style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Text(shortcut.label, style = MaterialTheme.typography.labelLarge, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** A key number with a label and a short line under it; tapping opens the related page. */
+@Composable
+internal fun NumberTile(label: String, value: String, caption: String, tone: Tone, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val accent = when (tone) {
+        Tone.Danger -> scheme.error
+        Tone.Warning -> scheme.secondary
+        Tone.Positive -> scheme.tertiary
+        else -> scheme.primary
+    }
+    Surface(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.medium, color = scheme.surfaceContainerLowest,
+        border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.7f))) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.headlineMedium, color = accent, maxLines = 1)
+            Text(caption, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** A titled card on the dashboard with an optional link on the right. */
+@Composable
+internal fun HomeCard(title: String, modifier: Modifier = Modifier, action: String? = null, onAction: (() -> Unit)? = null,
+                      content: @Composable ColumnScope.() -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(modifier.fillMaxWidth().animateContentSize(), shape = MaterialTheme.shapes.medium, color = scheme.surfaceContainerLowest,
+        border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.7f))) {
+        Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 44.dp)) {
+                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                if (action != null && onAction != null) TextButton(onAction) { Text(action) }
+            }
+            Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+        }
+    }
+}
+
+@Composable
+private fun Muted(text: String) = Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+@Composable
+private fun <T> SectionStatus(section: Section<T>, unavailable: String) {
+    if (section.error != null) Muted(unavailable) else LinearProgressIndicator(Modifier.fillMaxWidth())
+}
+
+@Composable
+private fun Greeting(profile: Section<StudentMe>) {
     com.campussphere.app.ui.brand.BrandHero(Modifier.appear(0)) {
         val me = profile.value
-        com.campussphere.app.ui.brand.CampusBrandRow(logoSize = 34.dp, fontSize = 16.sp, onDark = true)
-        Spacer(Modifier.height(10.dp))
-        Text(if (me != null) "Hello, ${me.name.substringBefore(' ')} 👋" else "Student dashboard",
-            style = MaterialTheme.typography.headlineMedium, color = Color.White)
+        com.campussphere.app.ui.brand.CampusBrandRow(logoSize = 30.dp, fontSize = 15.sp, onDark = true)
+        Spacer(Modifier.height(8.dp))
+        Text(if (me != null) "Hello, ${me.name.substringBefore(' ')}" else "Welcome back",
+            style = MaterialTheme.typography.headlineSmall, color = Color.White)
         me?.let {
             Text(it.college, style = MaterialTheme.typography.titleSmall, color = com.campussphere.app.ui.theme.Brand.AmberBright)
-            Text(if (it.division != null) "${it.program} · ${it.academicYear} · ${it.semester} · ${it.division}"
-                else "Not enrolled in a class yet", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
-            Text(it.email, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
+            Text(if (it.division != null) "${it.program} · ${it.semester} · ${it.division}" else "Not enrolled in a class yet",
+                style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f), maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (profile.loading && me == null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Color.White)
         profile.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White) }
-    }
-}
-
-/** A dashboard section card: a tinted badge with the section's symbol, its title, a link and the content. */
-@Composable
-internal fun <T> Panel(title: String, section: Section<T>, action: String, onAction: () -> Unit, order: Int = 0,
-                       tint: Color = MaterialTheme.colorScheme.primaryContainer,
-                       content: @Composable ColumnScope.(T) -> Unit) {
-    Card(Modifier.fillMaxWidth().appear(order).animateContentSize(), shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                IconBadge(title.substringBefore(' '), tint)
-                Text(title.substringAfter(' '), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                TextButton(onAction) { Text(action) }
-            }
-            val value = section.value
-            when {
-                value != null -> content(value)
-                section.error != null -> Text(section.error, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                else -> LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
-        }
     }
 }

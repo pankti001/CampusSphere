@@ -85,13 +85,10 @@ fun PdfPreview(file: File, title: String, close: () -> Unit, failed: () -> Unit,
     }
 
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(close) { Text("Close") }
-            Text(title, Modifier.weight(1f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleMedium)
-            TextButton({ zoom = (zoom - 1).coerceAtLeast(0) }, enabled = zoom > 0) { Text("−") }
-            Text("${(ZOOMS[zoom] * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
-            TextButton({ zoom = (zoom + 1).coerceAtMost(ZOOMS.lastIndex) }, enabled = zoom < ZOOMS.lastIndex) { Text("+") }
+        com.campussphere.app.ui.brand.CampusTopBar(title, close, subtitle = "Preview") {
+            TextButton({ zoom = (zoom - 1).coerceAtLeast(0) }, enabled = zoom > 0) { Text("−", style = MaterialTheme.typography.titleLarge) }
+            Text("${(ZOOMS[zoom] * 100).toInt()}%", Modifier.align(Alignment.CenterVertically), style = MaterialTheme.typography.labelMedium)
+            TextButton({ zoom = (zoom + 1).coerceAtMost(ZOOMS.lastIndex) }, enabled = zoom < ZOOMS.lastIndex) { Text("+", style = MaterialTheme.typography.titleLarge) }
         }
         val open = pdf
         if (open == null) {

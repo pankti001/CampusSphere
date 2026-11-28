@@ -49,16 +49,20 @@ fun Modifier.appear(order: Int = 0): Modifier = this.composed {
     }
 }
 
-/** Switches between pages with a short fade and lift, so moving around the app feels smooth. */
+/**
+ * Switches between pages with a short fade and lift, so moving around the app feels smooth. Each page keeps its
+ * saved state (such as how far it was scrolled) while another page is open, so Back returns to the same place.
+ */
 @Composable
 fun <T> ScreenSwitch(target: T, modifier: Modifier = Modifier, content: @Composable (T) -> Unit) {
+    val pages = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     AnimatedContent(
         targetState = target, modifier = modifier, label = "screen",
         transitionSpec = {
             (fadeIn(tween(260, delayMillis = 60)) + slideInVertically(tween(300)) { it / 24 } +
                 scaleIn(tween(300), initialScale = 0.985f)) togetherWith fadeOut(tween(160))
         },
-    ) { content(it) }
+    ) { page -> pages.SaveableStateProvider(page.toString()) { content(page) } }
 }
 
 /** The navy-to-blue brand card with a faint orbit drawn across it, for the top of dashboards. */

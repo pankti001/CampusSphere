@@ -318,6 +318,10 @@ class MainActivity : ComponentActivity() {
                         else SessionScreen(state, auth::refresh, auth::reapplyForFaculty, auth::logout,
                             onStudentAffiliation = { showRequest = true })
                     } else if (state.account?.dashboardRole == DashboardRole.STUDENT) {
+                        // The home dashboard's data lives here, so it is still loaded when the student comes back.
+                        val homeKeep = androidx.compose.runtime.remember { object : androidx.lifecycle.ViewModelStoreOwner {
+                            override val viewModelStore = androidx.lifecycle.ViewModelStore() } }
+                        DisposableEffect(homeKeep) { onDispose { homeKeep.viewModelStore.clear() } }
                         var showAttendance by rememberSaveable { mutableStateOf(false) }
                         var showMaterials by rememberSaveable { mutableStateOf(false) }
                         var showAnnouncements by rememberSaveable { mutableStateOf(false) }
@@ -358,10 +362,6 @@ class MainActivity : ComponentActivity() {
                                     homework, materials, announcements, skills, auth::studentAuthorization,
                                     { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, resources)
                             },
-                            homeworkCard = {
-                                com.campussphere.app.presentation.homework.StudentHomeworkCard(homework, auth::studentAuthorization,
-                                    { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { homeworkTab = it }
-                            },
                             open = { area, id ->
                                 when (area) {
                                     com.campussphere.app.presentation.student.StudentArea.TIMETABLE -> showTimetable = true
@@ -371,9 +371,10 @@ class MainActivity : ComponentActivity() {
                                     com.campussphere.app.presentation.student.StudentArea.CHATS -> { chatId = id; chatsOpen = true }
                                     com.campussphere.app.presentation.student.StudentArea.SKILLS -> skillsOpen = true
                                     com.campussphere.app.presentation.student.StudentArea.RESOURCES -> resourcesOpen = true
+                                    com.campussphere.app.presentation.student.StudentArea.HOMEWORK -> homeworkTab = "PENDING"
                                 }
                             },
-                            onRefreshAccount = auth::refresh, onLogout = auth::logout)
+                            onRefreshAccount = auth::refresh, onLogout = auth::logout, keep = homeKeep)
                         } }
                     } else SessionScreen(
                         state = state, onRefresh = auth::refresh, onReapply = auth::reapplyForFaculty, onLogout = auth::logout
