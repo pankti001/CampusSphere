@@ -234,14 +234,46 @@ class ChatViewModel(private val repo: ChatRepository, private val auth: () -> St
         state.update { it.copy(members = members) }
     }
 
+    /** Leaves the group; it stays on screen, read-only, until the student deletes it. */
     fun leave() {
         val current = state.value.current ?: return
         work {
             repo.leave(auth(), current.id)
             val list = repo.conversations(auth())
-            state.update { it.copy(page = ChatPage.LIST, current = null, messages = emptyList(), notice = "You left ${current.name}.",
-                conversations = list) }
+            val fresh = list.firstOrNull { it.id == current.id }
+            state.update { it.copy(page = if (fresh != null) ChatPage.CHAT else ChatPage.LIST, current = fresh,
+                messages = if (fresh != null) it.messages else emptyList(), conversations = list,
+                notice = "You left ${current.name}. You can still read the messages so far, or delete the group.") }
         }
+    }
+
+    /** Deletes the chat from this phone only: its messages go, and it leaves the list. */
+    fun deleteChat() {
+        val current = state.value.current ?: return
+        work {
+            repo.deleteForMe(auth(), current.id)
+            val list = repo.conversations(auth())
+            state.update { it.copy(page = ChatPage.LIST, current = null, messages = emptyList(), conversations = list,
+                notice = "Deleted ${current.name ?: "the chat"} from your phone.") }
+        }
+    }
+
+    fun deleteForEveryone() {
+        val current = state.value.current ?: return
+        work {
+            val gone = repo.deleteForEveryone(auth(), current.id)
+            state.update { it.copy(page = ChatPage.CHAT, current = gone,
+                notice = "Group deleted for everyone. Members can still read old messages until they delete it.") }
+        }
+    }
+
+    fun rejoinClass() = work {
+        val c = repo.rejoinClass(auth())
+        val list = repo.conversations(auth())
+        state.update { it.copy(conversations = list) }
+        val page = repo.messages(auth(), c.id)
+        state.update { it.copy(page = ChatPage.CHAT, current = c, messages = page.reversed(), hasOlder = page.size >= CHAT_PAGE,
+            draft = "", file = null, members = emptyList(), notice = "You are back in your class group.") }
     }
 
     fun archive() {

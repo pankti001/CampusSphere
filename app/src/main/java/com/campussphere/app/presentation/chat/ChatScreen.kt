@@ -27,7 +27,11 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.campussphere.app.data.remote.api.ChatConversation
 import com.campussphere.app.data.remote.api.ChatMessage
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.graphics.Color
 import com.campussphere.app.data.repository.CHAT_REPORT_REASONS
 import com.campussphere.app.data.repository.ChatRepository
 import com.campussphere.app.data.repository.HOMEWORK_FORMATS
@@ -111,11 +115,25 @@ fun ChatScreen(repo: ChatRepository, files: HomeworkRepository, auth: () -> Stri
     }
     reporting?.let { m -> ReportDialog(m, onDismiss = { reporting = null }) { reason, note, block -> reporting = null; vm.report(m, reason, note, block) } }
     confirm?.let { action ->
-        AlertDialog(onDismissRequest = { confirm = null },
-            title = { Text(if (action == "leave") "Leave this group?" else "Archive this group?") },
-            text = { Text(if (action == "leave") "You will stop receiving its messages. You can rejoin an open group later."
-                else "Messages stay readable, but nobody can post or join any more.") },
-            confirmButton = { TextButton({ confirm = null; if (action == "leave") vm.leave() else vm.archive() }) { Text(if (action == "leave") "Leave" else "Archive") } },
+        val c = ui.current
+        val (title, body, button) = when (action) {
+            "leave" -> Triple("Leave this group?", when {
+                c?.learning == true -> "You will also leave the learning group. You keep the messages so far, but get no new messages or notifications."
+                c?.kind == "CLASS" -> "You will get no class group messages or notifications. You keep the messages so far, and can rejoin your class group any time."
+                else -> "You will get no new messages or notifications and cannot reply. You keep the messages so far until you delete the group."
+            }, "Leave")
+            "delete" -> Triple(if (c?.kind == "DIRECT") "Delete this chat?" else "Delete this group?",
+                "Its messages are removed from your phone only; nobody else is affected. " +
+                    if (c?.left == true || c?.deleted == true) "It will not come back." else "If a new message arrives, it comes back without the old ones.",
+                "Delete")
+            "deleteAll" -> Triple("Delete this group for everyone?",
+                "Nobody can send messages any more. Members can still read the old messages until they delete the group.", "Delete for everyone")
+            else -> Triple("Archive this group?", "Messages stay readable, but nobody can post or join any more.", "Archive")
+        }
+        AlertDialog(onDismissRequest = { confirm = null }, title = { Text(title) }, text = { Text(body) },
+            confirmButton = { TextButton({ confirm = null; when (action) { "leave" -> vm.leave(); "delete" -> vm.deleteChat()
+                "deleteAll" -> vm.deleteForEveryone(); else -> vm.archive() } }) {
+                Text(button, color = if (action == "archive") Color.Unspecified else MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton({ confirm = null }) { Text("Cancel") } })
     }
 
@@ -133,10 +151,11 @@ fun ChatScreen(repo: ChatRepository, files: HomeworkRepository, auth: () -> Stri
                     ChatPage.BLOCKED -> "Blocked students"
                 }, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (ui.page == ChatPage.CHAT && current != null) Text(when (current.kind) {
-                    "CLASS" -> "Class group · ${current.members} students"
-                    "GROUP" -> "Study group · ${current.members} members" + if (current.archived) " · archived" else ""
+                    "CLASS" -> "Class group · ${current.members} student" + if (current.members == 1L) "" else "s"
+                    "GROUP" -> (if (current.learning) "Learning group" else "Study group") + " · ${current.members} member" + (if (current.members == 1L) "" else "s") +
+                        if (current.deleted) " · deleted" else if (current.archived) " · archived" else ""
                     else -> if (current.blocked) "Blocked" else "Private chat"
-                } + if (ui.live) " · live" else "", style = MaterialTheme.typography.bodySmall)
+                } + (if (current.left) " · you left" else if (ui.live) " · live" else ""), style = MaterialTheme.typography.bodySmall)
             }
             if (ui.page == ChatPage.CHAT && current != null) TextButton({ vm.details() }, enabled = !ui.busy) { Text("Details") }
         }
@@ -169,8 +188,9 @@ fun ChatScreen(repo: ChatRepository, files: HomeworkRepository, auth: () -> Stri
                             onSave = { saving = m; save.launch(m.attachmentName ?: "file") })
                     }
                 }
-                Composer(ui, current.canPost, current.blocked, pickError, onPick = { pick.launch(homeworkPickerTypes(HOMEWORK_FORMATS.map { it.first })) },
-                    onClearFile = { vm.chooseFile(null) }, onDraft = vm::setDraft, onSend = vm::send)
+                Composer(ui, current, pickError, onPick = { pick.launch(homeworkPickerTypes(HOMEWORK_FORMATS.map { it.first })) },
+                    onClearFile = { vm.chooseFile(null) }, onDraft = vm::setDraft, onSend = vm::send,
+                    onDelete = { confirm = "delete" }, onRejoin = vm::rejoinClass)
             }
             ChatPage.DETAILS -> if (current != null) Details(ui, vm, onConfirm = { confirm = it })
             ChatPage.NEW_GROUP -> GroupFormPage(ui, vm)
@@ -182,13 +202,16 @@ fun ChatScreen(repo: ChatRepository, files: HomeworkRepository, auth: () -> Stri
                         OutlinedButton(vm::discover, enabled = !ui.busy) { Text("Search") }
                     }
                 }
+                item {
+                    OutlinedButton(vm::rejoinClass, enabled = !ui.busy) { Text("🏫 Rejoin my class group") }
+                }
                 if (ui.openGroups.isEmpty() && !ui.busy) item { Text("No open groups to join. You can create one.") }
                 items(ui.openGroups, key = { it.id }) { g ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
                             Text(g.name, fontWeight = FontWeight.SemiBold)
                             if (g.description.isNotBlank()) Text(g.description, style = MaterialTheme.typography.bodySmall)
-                            Text("${g.members} members", style = MaterialTheme.typography.bodySmall)
+                            Text("${g.members} member" + if (g.members == 1L) "" else "s", style = MaterialTheme.typography.bodySmall)
                             Button({ vm.join(g) }, enabled = !ui.busy) { Text("Join") }
                         }
                     }
@@ -251,9 +274,13 @@ private fun ColumnScope.ConversationList(ui: ChatUi, vm: ChatViewModel) {
                     Column(Modifier.weight(1f)) {
                         Text((when (c.kind) { "CLASS" -> "🏫 "; "GROUP" -> "👥 "; else -> "👤 " }) + (c.name ?: "Chat"),
                             fontWeight = if (c.unread > 0) FontWeight.Bold else FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(listOfNotNull(c.lastSender?.takeIf { c.kind != "DIRECT" }?.substringBefore(' '), c.lastMessage)
-                            .joinToString(": ").ifEmpty { if (c.blocked) "Blocked" else "No messages yet" },
-                            style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(when {
+                            c.deleted -> "Group deleted by its owner"
+                            c.left -> "You left this group"
+                            else -> listOfNotNull(c.lastSender?.takeIf { c.kind != "DIRECT" }?.substringBefore(' '), c.lastMessage)
+                                .joinToString(": ").ifEmpty { if (c.blocked) "Blocked" else "No messages yet" }
+                        }, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = if (c.left || c.deleted) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified)
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(chatTime(c.lastMessageAt), style = MaterialTheme.typography.labelSmall)
@@ -295,14 +322,21 @@ private fun Bubble(m: ChatMessage, kind: String, image: ImageBitmap?, onLongPres
 }
 
 @Composable
-private fun Composer(ui: ChatUi, canPost: Boolean, blocked: Boolean, pickError: String?, onPick: () -> Unit,
-                     onClearFile: () -> Unit, onDraft: (String) -> Unit, onSend: () -> Unit) {
+private fun Composer(ui: ChatUi, c: ChatConversation, pickError: String?, onPick: () -> Unit,
+                     onClearFile: () -> Unit, onDraft: (String) -> Unit, onSend: () -> Unit, onDelete: () -> Unit, onRejoin: () -> Unit) {
     Surface(tonalElevation = 2.dp) {
         Column(Modifier.fillMaxWidth().padding(8.dp)) {
-            if (!canPost) {
-                Text(if (blocked) "You cannot message this student (one of you has blocked the other)."
-                    else "This group is archived. You can read it but not post.", style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(8.dp))
+            if (!c.canPost) {
+                Text(when {
+                    c.left -> "You left this group. You can still read the messages until you left, but get nothing new."
+                    c.deleted -> "This group was deleted by its owner. You can still read the old messages."
+                    c.blocked -> "You cannot message this student (one of you has blocked the other)."
+                    else -> "This group is archived. You can read it but not post."
+                }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
+                if (c.left || c.deleted || c.archived) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 8.dp)) {
+                    if (c.left && c.kind == "CLASS") Button(onRejoin, enabled = !ui.busy) { Text("Rejoin class group") }
+                    OutlinedButton(onDelete, enabled = !ui.busy) { Text("🗑 Delete group", color = MaterialTheme.colorScheme.error) }
+                }
                 return@Column
             }
             ui.file?.let { f ->
@@ -325,12 +359,13 @@ private fun Composer(ui: ChatUi, canPost: Boolean, blocked: Boolean, pickError: 
 @Composable
 private fun ColumnScope.Details(ui: ChatUi, vm: ChatViewModel, onConfirm: (String) -> Unit) {
     val c = ui.current ?: return
-    val owner = c.myRole == "OWNER" && c.kind == "GROUP" && !c.archived
+    val owner = c.myRole == "OWNER" && c.kind == "GROUP" && !c.archived && !c.left
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 when (c.kind) {
-                    "CLASS" -> Text("Everyone currently enrolled in your class is in this group automatically. You cannot leave it.")
+                    "CLASS" -> Text(if (c.left) "You left your class group. Rejoin it any time from Join a group."
+                        else "Everyone enrolled in your class is in this group. You can leave it and rejoin later.")
                     "GROUP" -> {
                         if (!c.description.isNullOrBlank()) Text(c.description)
                         Text(if (c.joinPolicy == "OPEN") "Open: any student of your college can join." else "Invite only: the owner adds members.",
@@ -343,9 +378,17 @@ private fun ColumnScope.Details(ui: ChatUi, vm: ChatViewModel, onConfirm: (Strin
                     OutlinedButton(vm::editGroup, enabled = !ui.busy) { Text("Edit") }
                     OutlinedButton({ vm.people(PeopleMode.ADD) }, enabled = !ui.busy) { Text("Add member") }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (c.kind == "GROUP" && !c.archived) TextButton({ onConfirm("leave") }, enabled = !ui.busy) { Text("Leave group") }
-                    if (owner) TextButton({ onConfirm("archive") }, enabled = !ui.busy) { Text("Archive") }
+                if (c.learning && c.myRole == "OWNER") Text("You teach this learning group, so you stay in its chat. You can still delete the messages from your phone.",
+                    style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (c.kind != "DIRECT" && !c.left && !(c.learning && c.myRole == "OWNER"))
+                        OutlinedButton({ onConfirm("leave") }, enabled = !ui.busy) { Text("🚪 Leave group") }
+                    OutlinedButton({ onConfirm("delete") }, enabled = !ui.busy) {
+                        Text(if (c.kind == "DIRECT") "🗑 Delete chat" else "🗑 Delete group", color = MaterialTheme.colorScheme.error)
+                    }
+                    if (c.canDeleteForEveryone) OutlinedButton({ onConfirm("deleteAll") }, enabled = !ui.busy) {
+                        Text("Delete for everyone", color = MaterialTheme.colorScheme.error)
+                    }
                     if (c.kind == "DIRECT" && c.otherStudentId != null && !c.blocked) {
                         TextButton({ vm.blockSender(c.otherStudentId, c.name ?: "This student") }, enabled = !ui.busy) { Text("Block") }
                     }

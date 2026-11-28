@@ -96,6 +96,9 @@ class ChatRepository(private val api: ChatApi, private val streamClient: OkHttpC
     suspend fun archive(auth: String, id: Long) = call { api.archive(auth, id) }
     suspend fun join(auth: String, id: Long) = call { api.join(auth, id) }
     suspend fun leave(auth: String, id: Long) { call { api.leave(auth, id) } }
+    suspend fun deleteForMe(auth: String, id: Long) { call { api.deleteForMe(auth, id) } }
+    suspend fun deleteForEveryone(auth: String, id: Long) = call { api.deleteForEveryone(auth, id) }
+    suspend fun rejoinClass(auth: String) = call { api.rejoinClass(auth) }
     suspend fun members(auth: String, id: Long) = call { api.members(auth, id) }
     suspend fun addMember(auth: String, id: Long, studentId: Long) = call { api.addMember(auth, id, ChatStudentRef(studentId)) }
     suspend fun removeMember(auth: String, id: Long, studentId: Long) = call { api.removeMember(auth, id, studentId) }

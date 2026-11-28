@@ -40,7 +40,7 @@ public class StudentChats {
     public record Conversation(long id, String kind, String name, String description, String joinPolicy,
                                boolean archived, String myRole, long members, long unread, Long otherStudentId,
                                String lastMessage, String lastSender, OffsetDateTime lastMessageAt, boolean blocked,
-                               boolean canPost) {}
+                               boolean canPost, boolean left, boolean deleted, boolean learning, boolean canDeleteForEveryone) {}
     public record Message(long id, long conversationId, long senderId, String sender, boolean mine, String body,
                           String attachmentName, String attachmentFormat, Long attachmentSize,
                           OffsetDateTime createdAt, boolean deleted, long readBy) {}
@@ -63,19 +63,43 @@ public class StudentChats {
         @JsonAnySetter public void rejectUnknownField(String f, Object v) { throw new IllegalArgumentException("Unsupported field"); }
     }
 
-    /** A conversation the actor is an active member of. */
-    record Access(long college, long id, String kind, String role, boolean archived, Long other, boolean blocked) {
-        boolean canPost() { return !archived && !blocked; }
+    /**
+     * A conversation the actor is in, or has left but not deleted. Messages from [cleared] (exclusive) up to [upper]
+     * (inclusive) are the ones the actor may still see: after "Delete" older ones are gone; after leaving, newer ones
+     * never reach them.
+     */
+    record Access(long college, long id, String kind, String role, boolean archived, Long other, boolean blocked,
+                  boolean left, long cleared, long upper) {
+        Access(long college, long id, String kind, String role, boolean archived, Long other, boolean blocked) {
+            this(college, id, kind, role, archived, other, blocked, false, 0, Long.MAX_VALUE);
+        }
+        boolean canPost() { return !archived && !blocked && !left; }
     }
+
+    /** The membership rows a student may still open: current ones, and left ones they have not deleted. */
+    static final String VISIBLE_MEMBER = "(me.left_at IS NULL OR (me.left_message_id IS NOT NULL AND NOT me.hidden))";
+    /** Messages of conversation c that the member row "me" may still see. */
+    static final String IN_WINDOW = "x.id > me.cleared_message_id AND (me.left_message_id IS NULL OR x.id <= me.left_message_id)";
+    /** The newest message id of a conversation (0 when empty); arguments: college, conversation. */
+    static final String NEWEST = "(SELECT coalesce(max(id), 0) FROM public.chat_messages WHERE college_id = ? AND conversation_id = ?)";
 
     private final JdbcTemplate db;
     private final MaterialFiles files;
     private final ChatStream stream;
+    /** Learning groups of Skill Exchange: leaving one's chat leaves the learning group too. */
+    private final org.springframework.beans.factory.ObjectProvider<SkillGroups> learning;
 
-    public StudentChats(JdbcTemplate db, MaterialFiles files, ChatStream stream) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public StudentChats(JdbcTemplate db, MaterialFiles files, ChatStream stream,
+                        org.springframework.beans.factory.ObjectProvider<SkillGroups> learning) {
         this.db = db;
         this.files = files;
         this.stream = stream;
+        this.learning = learning;
+    }
+
+    StudentChats(JdbcTemplate db, MaterialFiles files, ChatStream stream) {
+        this(db, files, stream, null);
     }
 
     // ---- Rules ----
@@ -159,18 +183,21 @@ public class StudentChats {
                     INSERT INTO public.chat_members (college_id, conversation_id, student_id)
                     SELECT e.college_id, ?, e.student_id FROM public.student_enrollments e
                     WHERE e.college_id = ? AND e.division_id = ? AND e.ended_at IS NULL
-                    ON CONFLICT (conversation_id, student_id) DO UPDATE SET left_at = NULL, joined_at = statement_timestamp()
-                    WHERE chat_members.left_at IS NOT NULL
+                    ON CONFLICT (conversation_id, student_id) DO UPDATE SET left_at = NULL, left_message_id = NULL, hidden = false,
+                        joined_at = statement_timestamp()
+                    WHERE chat_members.left_at IS NOT NULL AND NOT chat_members.left_by_choice
                     """, conversation, college, c[2]);
             db.update("""
-                    UPDATE public.chat_members m SET left_at = statement_timestamp()
+                    UPDATE public.chat_members m SET left_at = statement_timestamp(),
+                        left_message_id = (SELECT coalesce(max(x.id), 0) FROM public.chat_messages x WHERE x.conversation_id = m.conversation_id)
                     WHERE m.conversation_id = ? AND m.left_at IS NULL AND NOT EXISTS (
                         SELECT 1 FROM public.student_enrollments e WHERE e.college_id = m.college_id
                           AND e.student_id = m.student_id AND e.division_id = ? AND e.ended_at IS NULL)
                     """, conversation, c[2]);
         }
         db.update("""
-                UPDATE public.chat_members m SET left_at = statement_timestamp()
+                UPDATE public.chat_members m SET left_at = statement_timestamp(),
+                    left_message_id = (SELECT coalesce(max(x.id), 0) FROM public.chat_messages x WHERE x.conversation_id = m.conversation_id)
                 FROM public.chat_conversations c
                 WHERE c.college_id = m.college_id AND c.id = m.conversation_id AND c.kind = 'CLASS'
                   AND m.college_id = ? AND m.student_id = ? AND m.left_at IS NULL AND m.conversation_id IS DISTINCT FROM ?
@@ -184,14 +211,18 @@ public class StudentChats {
         return db.query("""
                 SELECT c.kind, me.role, c.archived_at IS NOT NULL,
                        (SELECT o.student_id FROM public.chat_members o
-                        WHERE c.kind = 'DIRECT' AND o.conversation_id = c.id AND o.student_id <> me.student_id LIMIT 1)
+                        WHERE c.kind = 'DIRECT' AND o.conversation_id = c.id AND o.student_id <> me.student_id LIMIT 1),
+                       me.left_at IS NOT NULL, me.cleared_message_id, me.left_message_id
                 FROM public.chat_conversations c
-                JOIN public.chat_members me ON me.conversation_id = c.id AND me.student_id = ? AND me.left_at IS NULL
+                JOIN public.chat_members me ON me.conversation_id = c.id AND me.student_id = ? AND """ + VISIBLE_MEMBER + """
+
                 WHERE c.college_id = ? AND c.id = ?
                 """, (r, i) -> {
             Long other = (Long) r.getObject(4, Long.class);
+            Number upper = (Number) r.getObject(7);
             return new Access(college, id, r.getString(1), r.getString(2), r.getBoolean(3), other,
-                    other != null && blocked(actor.id(), other));
+                    other != null && blocked(actor.id(), other), r.getBoolean(5), r.getLong(6),
+                    upper == null ? Long.MAX_VALUE : upper.longValue());
         }, actor.id(), college, id).stream().findFirst().orElseThrow(ApiError.CHAT_NOT_FOUND::exception);
     }
 
@@ -218,6 +249,7 @@ public class StudentChats {
                    (SELECT count(*) FROM public.chat_members k WHERE k.conversation_id = c.id AND k.left_at IS NULL) members,
                    (SELECT count(*) FROM public.chat_messages x
                     WHERE x.college_id = c.college_id AND x.conversation_id = c.id AND x.id > me.last_read_message_id
+                      AND x.id > me.cleared_message_id AND (me.left_message_id IS NULL OR x.id <= me.left_message_id)
                       AND x.sender_id <> me.student_id AND x.deleted_at IS NULL
                       AND NOT EXISTS (SELECT 1 FROM public.chat_blocks b WHERE b.blocker_id = me.student_id AND b.blocked_id = x.sender_id)
                       AND NOT EXISTS (SELECT 1 FROM public.chat_reports rp WHERE rp.reporter_id = me.student_id AND rp.message_id = x.id)) unread,
@@ -225,15 +257,23 @@ public class StudentChats {
                    l.sender last_sender, l.created_at last_at,
                    (other.student_id IS NOT NULL AND EXISTS (SELECT 1 FROM public.chat_blocks b
                         WHERE (b.blocker_id = me.student_id AND b.blocked_id = other.student_id)
-                           OR (b.blocker_id = other.student_id AND b.blocked_id = me.student_id))) blocked
+                           OR (b.blocker_id = other.student_id AND b.blocked_id = me.student_id))) blocked,
+                   me.left_at IS NOT NULL is_left, c.deleted_at IS NOT NULL is_deleted,
+                   EXISTS (SELECT 1 FROM public.skill_groups sg WHERE sg.college_id = c.college_id AND sg.conversation_id = c.id) learning
             FROM public.chat_conversations c
-            JOIN public.chat_members me ON me.conversation_id = c.id AND me.student_id = ? AND me.left_at IS NULL
+            -- Current memberships, and left ones not deleted; a deleted chat shows again only when a newer message reaches you.
+            JOIN public.chat_members me ON me.conversation_id = c.id AND me.student_id = ?
+                AND (me.left_at IS NULL OR (me.left_message_id IS NOT NULL AND NOT me.hidden))
+                AND (NOT me.hidden OR EXISTS (SELECT 1 FROM public.chat_messages x WHERE x.college_id = c.college_id
+                     AND x.conversation_id = c.id AND x.id > me.cleared_message_id
+                     AND (me.left_message_id IS NULL OR x.id <= me.left_message_id)))
             LEFT JOIN public.chat_members other ON c.kind = 'DIRECT' AND other.conversation_id = c.id AND other.student_id <> me.student_id
             LEFT JOIN public.users ou ON ou.id = other.student_id
             LEFT JOIN LATERAL (
                 SELECT x.body, x.attachment_name, x.deleted_at, su.full_name sender, x.created_at
                 FROM public.chat_messages x JOIN public.users su ON su.id = x.sender_id
                 WHERE x.college_id = c.college_id AND x.conversation_id = c.id
+                  AND x.id > me.cleared_message_id AND (me.left_message_id IS NULL OR x.id <= me.left_message_id)
                   AND NOT EXISTS (SELECT 1 FROM public.chat_blocks b WHERE b.blocker_id = me.student_id AND b.blocked_id = x.sender_id)
                   AND NOT EXISTS (SELECT 1 FROM public.chat_reports rp WHERE rp.reporter_id = me.student_id AND rp.message_id = x.id)
                 ORDER BY x.id DESC LIMIT 1) l ON true
@@ -245,10 +285,14 @@ public class StudentChats {
         String last = r.getObject("last_deleted") != null ? "Message deleted"
                 : r.getString("last_file") != null && (r.getString("last_body") == null || r.getString("last_body").isEmpty())
                 ? "📎 " + r.getString("last_file") : r.getString("last_body");
+        boolean left = r.getBoolean("is_left");
+        boolean learning = r.getBoolean("learning");
         return new Conversation(r.getLong("id"), r.getString("kind"), r.getString("name"), r.getString("description"),
                 r.getString("join_policy"), archived, r.getString("role"), r.getLong("members"), r.getLong("unread"),
                 (Long) r.getObject("other_id", Long.class), last, r.getString("last_sender"),
-                r.getObject("last_at", OffsetDateTime.class), blocked, !archived && !blocked);
+                r.getObject("last_at", OffsetDateTime.class), blocked, !archived && !blocked && !left, left,
+                r.getBoolean("is_deleted"), learning,
+                "GROUP".equals(r.getString("kind")) && "OWNER".equals(r.getString("role")) && !archived && !left && !learning);
     }
 
     public List<Conversation> conversations(Account actor) {
@@ -305,6 +349,8 @@ public class StudentChats {
                     ON CONFLICT (conversation_id, student_id) DO NOTHING
                     """, college, id, student);
         }
+        db.update("UPDATE public.chat_members SET hidden = false WHERE college_id = ? AND conversation_id = ? AND student_id = ? AND hidden",
+                college, id, actor.id());
         return conversation(actor, id);
     }
 
@@ -330,7 +376,7 @@ public class StudentChats {
 
     private Access ownedGroup(Account actor, long id) {
         Access access = access(actor, id);
-        if (!access.kind().equals("GROUP") || !"OWNER".equals(access.role())) throw ApiError.CHAT_NOT_ALLOWED.exception();
+        if (!access.kind().equals("GROUP") || !"OWNER".equals(access.role()) || access.left()) throw ApiError.CHAT_NOT_ALLOWED.exception();
         if (access.archived()) throw ApiError.CHAT_STATE_CONFLICT.exception();
         return access;
     }
@@ -379,13 +425,35 @@ public class StudentChats {
         return joined;
     }
 
+    /**
+     * Leaves a group (a study group, a learning group or the class group): no new messages, notifications or replies
+     * reach the student any more, but what was said until now stays readable until they delete it. Leaving a learning
+     * group's chat leaves the learning group too; its teaching student cannot leave it. Leaving the class group lasts
+     * until they rejoin it. A private chat cannot be left, only deleted.
+     */
     public void leave(Account actor, long id) {
         Access access = access(actor, id);
-        if (!access.kind().equals("GROUP")) throw ApiError.CHAT_NOT_ALLOWED.exception();
+        if (access.kind().equals("DIRECT")) throw ApiError.CHAT_NOT_ALLOWED.exception();
+        if (access.left()) return;
+        var group = db.query("""
+                SELECT id, teacher_id FROM public.skill_groups WHERE college_id = ? AND conversation_id = ? AND status = 'ACTIVE'
+                """, (r, i) -> new long[]{r.getLong(1), r.getLong(2)}, access.college(), id);
+        if (!group.isEmpty()) {
+            if (group.get(0)[1] == actor.id()) throw ApiError.CHAT_NOT_ALLOWED.exception();
+            SkillGroups groups = learning == null ? null : learning.getIfAvailable();
+            if (groups != null) {
+                groups.leave(actor, group.get(0)[0]);
+                return;
+            }
+        }
         db.update("""
-                UPDATE public.chat_members SET left_at = statement_timestamp(), role = 'MEMBER'
+                UPDATE public.chat_members SET left_at = statement_timestamp(), role = 'MEMBER', left_by_choice = ?,
+                    left_message_id = """ + NEWEST + """
+                ,
+                    last_read_message_id = GREATEST(last_read_message_id, """ + NEWEST + """
+                )
                 WHERE college_id = ? AND conversation_id = ? AND student_id = ?
-                """, access.college(), id, actor.id());
+                """, access.kind().equals("CLASS"), access.college(), id, access.college(), id, access.college(), id, actor.id());
         if ("OWNER".equals(access.role())) {
             // The longest-standing member becomes the owner; a group nobody is left in is archived.
             int promoted = db.update("""
@@ -401,6 +469,60 @@ public class StudentChats {
         publish(access.college(), id, "members");
     }
 
+    /**
+     * Deletes a chat or group from the student's own phone only: its messages until now are gone for them and it leaves
+     * their list. If they are still in it, it comes back when a new message arrives (without the old ones); after
+     * leaving, it stays gone. Nobody else is affected.
+     */
+    public void deleteForMe(Account actor, long id) {
+        Access access = access(actor, id);
+        db.update("""
+                UPDATE public.chat_members SET hidden = true,
+                    cleared_message_id = GREATEST(cleared_message_id, """ + NEWEST + """
+                ),
+                    last_read_message_id = GREATEST(last_read_message_id, """ + NEWEST + """
+                )
+                WHERE college_id = ? AND conversation_id = ? AND student_id = ?
+                """, access.college(), id, access.college(), id, access.college(), id, actor.id());
+    }
+
+    /**
+     * The owner deletes their study group for everyone: it closes (nobody can post), and every member sees that it was
+     * deleted and can then delete it from their own phone. A learning group's chat belongs to Skill Exchange and
+     * cannot be deleted this way.
+     */
+    public Conversation deleteForEveryone(Account actor, long id) {
+        Access access = ownedGroup(actor, id);
+        if (Boolean.TRUE.equals(db.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM public.skill_groups WHERE college_id = ? AND conversation_id = ?)
+                """, Boolean.class, access.college(), id))) throw ApiError.CHAT_NOT_ALLOWED.exception();
+        db.update("""
+                UPDATE public.chat_conversations SET archived_at = statement_timestamp(), deleted_at = statement_timestamp(),
+                    deleted_by = ? WHERE college_id = ? AND id = ? AND archived_at IS NULL
+                """, actor.id(), access.college(), id);
+        publish(access.college(), id, "members");
+        return conversation(actor, id);
+    }
+
+    /** Back into the class group after leaving it; old messages stay deleted if they deleted them. */
+    public Conversation rejoinClass(Account actor) {
+        long college = college(actor);
+        db.update("""
+                UPDATE public.chat_members m SET left_by_choice = false
+                FROM public.chat_conversations c
+                WHERE c.college_id = m.college_id AND c.id = m.conversation_id AND c.kind = 'CLASS'
+                  AND m.college_id = ? AND m.student_id = ? AND m.left_by_choice
+                """, college, actor.id());
+        syncClass(actor);
+        Long id = db.query("""
+                SELECT c.id FROM public.chat_conversations c JOIN public.student_enrollments e
+                  ON e.college_id = c.college_id AND e.division_id = c.division_id AND e.ended_at IS NULL
+                WHERE c.college_id = ? AND c.kind = 'CLASS' AND e.student_id = ?
+                """, (r, i) -> r.getLong(1), college, actor.id()).stream().findFirst()
+                .orElseThrow(ApiError.CHAT_NOT_FOUND::exception);
+        publish(college, id, "members");
+        return conversation(actor, id);
+    }
     public List<Member> members(Account actor, long id) {
         Access access = access(actor, id);
         return db.query("""
@@ -427,8 +549,8 @@ public class StudentChats {
         if (size != null && size >= MAX_GROUP_MEMBERS) throw ApiError.CHAT_LIMIT.exception();
         db.update("""
                 INSERT INTO public.chat_members (college_id, conversation_id, student_id) VALUES (?, ?, ?)
-                ON CONFLICT (conversation_id, student_id) DO UPDATE SET left_at = NULL, role = 'MEMBER',
-                    joined_at = statement_timestamp() WHERE chat_members.left_at IS NOT NULL
+                ON CONFLICT (conversation_id, student_id) DO UPDATE SET left_at = NULL, role = 'MEMBER', left_message_id = NULL,
+                    hidden = false, left_by_choice = false, joined_at = statement_timestamp() WHERE chat_members.left_at IS NOT NULL
                 """, college, id, student);
     }
 
@@ -436,9 +558,10 @@ public class StudentChats {
         Access access = ownedGroup(actor, id);
         if (student == actor.id()) throw ApiError.CHAT_INVALID.exception();
         int removed = db.update("""
-                UPDATE public.chat_members SET left_at = statement_timestamp()
+                UPDATE public.chat_members SET left_at = statement_timestamp(), left_message_id = """ + NEWEST + """
+
                 WHERE college_id = ? AND conversation_id = ? AND student_id = ? AND left_at IS NULL
-                """, access.college(), id, student);
+                """, access.college(), id, access.college(), id, student);
         if (removed == 0) throw ApiError.CHAT_NOT_FOUND.exception();
         publish(access.college(), id, "members");
         return members(actor, id);
@@ -454,7 +577,8 @@ public class StudentChats {
             FROM public.chat_messages m JOIN public.users u ON u.id = m.sender_id
             WHERE m.college_id = ? AND m.conversation_id = ?
               AND NOT EXISTS (SELECT 1 FROM public.chat_blocks b WHERE b.blocker_id = ? AND b.blocked_id = m.sender_id)
-              AND NOT EXISTS (SELECT 1 FROM public.chat_reports rp WHERE rp.reporter_id = ? AND rp.message_id = m.id)""";
+              AND NOT EXISTS (SELECT 1 FROM public.chat_reports rp WHERE rp.reporter_id = ? AND rp.message_id = m.id)
+              AND m.id > ? AND m.id <= ?""";
 
     private Message message(ResultSet r, long me) throws SQLException {
         Number size = (Number) r.getObject("attachment_size");
@@ -469,16 +593,18 @@ public class StudentChats {
         Access access = access(actor, id);
         if (before != null && before <= 0) throw ApiError.CHAT_INVALID.exception();
         String page = (before == null ? "" : " AND m.id < " + before) + " ORDER BY m.id DESC LIMIT " + PAGE;
-        return db.query(MESSAGES + page, (r, i) -> message(r, actor.id()), access.college(), id, actor.id(), actor.id());
+        return db.query(MESSAGES + page, (r, i) -> message(r, actor.id()), access.college(), id, actor.id(), actor.id(),
+                access.cleared(), access.upper());
     }
 
     private Message one(Access access, Account actor, long messageId) {
         return db.query(MESSAGES + " AND m.id = ?", (r, i) -> message(r, actor.id()), access.college(), access.id(),
-                actor.id(), actor.id(), messageId).stream().findFirst().orElseThrow(ApiError.CHAT_NOT_FOUND::exception);
+                actor.id(), actor.id(), access.cleared(), access.upper(), messageId).stream().findFirst().orElseThrow(ApiError.CHAT_NOT_FOUND::exception);
     }
 
     private Access postable(Account actor, long id) {
         Access access = access(actor, id);
+        if (access.left()) throw ApiError.CHAT_STATE_CONFLICT.exception();
         if (access.blocked()) throw ApiError.CHAT_BLOCKED.exception();
         if (access.archived()) throw ApiError.CHAT_STATE_CONFLICT.exception();
         return access;
@@ -545,6 +671,7 @@ public class StudentChats {
     /** Deletes the actor's own message for everyone: its text and file are removed, a placeholder stays. */
     public Message delete(Account actor, long id, long messageId) {
         Access access = access(actor, id);
+        one(access, actor, messageId); // only a message the actor can still see
         var key = db.query("""
                 SELECT attachment_key FROM public.chat_messages
                 WHERE college_id = ? AND conversation_id = ? AND id = ? AND sender_id = ? AND deleted_at IS NULL FOR UPDATE

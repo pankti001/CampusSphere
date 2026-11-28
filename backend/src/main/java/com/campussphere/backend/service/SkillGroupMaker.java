@@ -104,8 +104,8 @@ class SkillGroupMaker {
         Long chat = chat(college, group);
         if (chat != null) db.update("""
                 INSERT INTO public.chat_members (college_id, conversation_id, student_id) VALUES (?, ?, ?)
-                ON CONFLICT (conversation_id, student_id) DO UPDATE SET left_at = NULL, role = 'MEMBER',
-                    joined_at = statement_timestamp() WHERE chat_members.left_at IS NOT NULL
+                ON CONFLICT (conversation_id, student_id) DO UPDATE SET left_at = NULL, role = 'MEMBER', left_message_id = NULL,
+                    hidden = false, left_by_choice = false, joined_at = statement_timestamp() WHERE chat_members.left_at IS NOT NULL
                 """, college, chat, r.learner());
         notices.student(college, r.learner(), "GROUP_JOINED", "group:" + group + ":joined:" + r.id(), "You joined a learning group",
                 "You will learn together with classmates. Open the group to see sessions and the group chat.",
@@ -124,10 +124,14 @@ class SkillGroupMaker {
             db.update("UPDATE public.skill_group_members SET left_at = statement_timestamp() WHERE college_id = ? AND group_id = ? AND learner_id = ?",
                     college, group, row[1]);
             Long chat = chat(college, group);
+            // Out of the group chat too, keeping what was said until now readable (like leaving any group).
             if (chat != null) db.update("""
-                    UPDATE public.chat_members SET left_at = statement_timestamp()
+                    UPDATE public.chat_members SET left_at = statement_timestamp(),
+                        left_message_id = (SELECT coalesce(max(id), 0) FROM public.chat_messages WHERE college_id = ? AND conversation_id = ?),
+                        last_read_message_id = GREATEST(last_read_message_id,
+                            (SELECT coalesce(max(id), 0) FROM public.chat_messages WHERE college_id = ? AND conversation_id = ?))
                     WHERE college_id = ? AND conversation_id = ? AND student_id = ? AND left_at IS NULL
-                    """, college, chat, row[1]);
+                    """, college, chat, college, chat, college, chat, row[1]);
             Long left = db.queryForObject("SELECT count(*) FROM public.skill_group_members WHERE college_id = ? AND group_id = ? AND left_at IS NULL",
                     Long.class, college, group);
             if (left != null && left == 0) close(college, group);

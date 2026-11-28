@@ -14,7 +14,13 @@ data class StudentMe(val id: Long, val name: String, val email: String, val coll
 data class ChatConversation(val id: Long, val kind: String, val name: String?, val description: String?,
                             val joinPolicy: String?, val archived: Boolean, val myRole: String, val members: Long,
                             val unread: Long, val otherStudentId: Long?, val lastMessage: String?, val lastSender: String?,
-                            val lastMessageAt: String?, val blocked: Boolean, val canPost: Boolean)
+                            val lastMessageAt: String?, val blocked: Boolean, val canPost: Boolean,
+                            /** You left it: old messages stay readable, nothing new reaches you. */
+                            val left: Boolean = false,
+                            /** Its owner deleted it for everyone. */
+                            val deleted: Boolean = false,
+                            /** The chat of a Skill Exchange learning group. */
+                            val learning: Boolean = false, val canDeleteForEveryone: Boolean = false)
 
 data class ChatMessage(val id: Long, val conversationId: Long, val senderId: Long, val sender: String, val mine: Boolean,
                        val body: String, val attachmentName: String?, val attachmentFormat: String?,
@@ -66,6 +72,16 @@ interface ChatApi {
 
     @POST("api/student/chats/{id}/leave")
     suspend fun leave(@Header("Authorization") auth: String, @Path("id") id: Long): Response<Unit>
+
+    /** Removes the chat and its messages from your phone only. */
+    @POST("api/student/chats/{id}/delete")
+    suspend fun deleteForMe(@Header("Authorization") auth: String, @Path("id") id: Long): Response<Unit>
+
+    @POST("api/student/chats/{id}/delete-for-everyone")
+    suspend fun deleteForEveryone(@Header("Authorization") auth: String, @Path("id") id: Long): Response<ChatConversation>
+
+    @POST("api/student/chats/class/rejoin")
+    suspend fun rejoinClass(@Header("Authorization") auth: String): Response<ChatConversation>
 
     @GET("api/student/chats/{id}/members")
     suspend fun members(@Header("Authorization") auth: String, @Path("id") id: Long): Response<List<ChatMember>>

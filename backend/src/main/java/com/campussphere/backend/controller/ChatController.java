@@ -102,6 +102,24 @@ public class ChatController {
         chats.leave(actor, id);
     }
 
+    /** Deletes the chat or group from the signed-in student's own list and history only. */
+    @PostMapping(CHATS + ID + "/delete")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void deleteForMe(@AuthenticationPrincipal Account actor, @PathVariable long id) {
+        chats.deleteForMe(actor, id);
+    }
+
+    /** The owner deletes their study group for everyone. */
+    @PostMapping(CHATS + ID + "/delete-for-everyone")
+    Conversation deleteForEveryone(@AuthenticationPrincipal Account actor, @PathVariable long id) {
+        return chats.deleteForEveryone(actor, id);
+    }
+
+    @PostMapping(CHATS + "/class/rejoin")
+    Conversation rejoinClass(@AuthenticationPrincipal Account actor) {
+        return chats.rejoinClass(actor);
+    }
+
     @GetMapping(CHATS + ID + "/members")
     List<Member> members(@AuthenticationPrincipal Account actor, @PathVariable long id) {
         return chats.members(actor, id);

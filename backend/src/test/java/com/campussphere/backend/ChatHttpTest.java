@@ -43,6 +43,10 @@ class ChatHttpTest {
             http.perform(get("/api/student/chats/9/messages/5/file").with(as(account(role)))).andExpect(status().isForbidden());
             http.perform(get("/api/student/chats/stream").with(as(account(role)))).andExpect(status().isForbidden());
             http.perform(get("/api/student/me").with(as(account(role)))).andExpect(status().isForbidden());
+            http.perform(post("/api/student/chats/9/delete").with(as(account(role)))).andExpect(status().isForbidden());
+            http.perform(post("/api/student/chats/9/delete-for-everyone").with(as(account(role)))).andExpect(status().isForbidden());
+            http.perform(post("/api/student/chats/9/leave").with(as(account(role)))).andExpect(status().isForbidden());
+            http.perform(post("/api/student/chats/class/rejoin").with(as(account(role)))).andExpect(status().isForbidden());
         }
         // No route anywhere else exposes chats or reports.
         http.perform(get("/api/college/chats").with(as(account("COLLEGE_ADMIN")))).andExpect(status().isForbidden());
