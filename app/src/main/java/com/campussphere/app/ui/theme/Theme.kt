@@ -84,3 +84,29 @@ fun CampusSphereTheme(
         Surface(modifier = Modifier.fillMaxSize(), color = colorScheme.background, content = content)
     }
 }
+
+/**
+ * For screens that always draw a light background (welcome, sign in, register): light colours for text and
+ * fields, even when the phone is in dark mode. Pair it with [SystemBarIcons] so the bar icons match.
+ */
+@Composable
+fun LightBrandScreen(content: @Composable () -> Unit) = CampusSphereTheme(darkTheme = false, content = content)
+
+/**
+ * Dark status and navigation bar icons when [dark] (over a light screen), light icons otherwise. Decided by the
+ * screen being shown, not by screens opening and closing, so page animations cannot leave the wrong icons.
+ */
+@Composable
+fun SystemBarIcons(dark: Boolean) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (view.isInEditMode) return
+    androidx.compose.runtime.SideEffect {
+        var context = view.context
+        while (context is android.content.ContextWrapper && context !is android.app.Activity) context = context.baseContext
+        val window = (context as? android.app.Activity)?.window ?: return@SideEffect
+        androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = dark
+            isAppearanceLightNavigationBars = dark
+        }
+    }
+}

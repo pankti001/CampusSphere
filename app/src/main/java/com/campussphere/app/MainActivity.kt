@@ -165,6 +165,9 @@ class MainActivity : ComponentActivity() {
                 }
 
                 var application by rememberSaveable { mutableStateOf(false) }
+                // Dark bar icons over the light welcome, sign-in and register screens; otherwise they follow the theme.
+                com.campussphere.app.ui.theme.SystemBarIcons(dark = !androidx.compose.foundation.isSystemInDarkTheme() ||
+                    (!application && state.route in setOf(AuthRoute.ONBOARDING, AuthRoute.LOGIN, AuthRoute.REGISTER)))
                 if (state.route == AuthRoute.LOGIN && application) {
                     com.campussphere.app.presentation.auth.CollegeApplicationScreen(registrationApi) { application = false }
                     return@CampusSphereTheme
@@ -172,8 +175,10 @@ class MainActivity : ComponentActivity() {
                 // Every change of route (sign in, sign out, register) fades and lifts into place.
                 com.campussphere.app.ui.brand.ScreenSwitch(state.route) { route -> when (route) {
                     AuthRoute.RESTORING -> SplashScreen()
-                    AuthRoute.ONBOARDING -> OnboardingScreen(onGetStarted = auth::showLogin)
-                    AuthRoute.LOGIN -> LoginScreen(
+                    // Welcome, sign-in and register always draw a light background, so they always use the light
+                    // colours too; otherwise in dark mode the typed text and labels turn light grey and vanish.
+                    AuthRoute.ONBOARDING -> com.campussphere.app.ui.theme.LightBrandScreen { OnboardingScreen(onGetStarted = auth::showLogin) }
+                    AuthRoute.LOGIN -> com.campussphere.app.ui.theme.LightBrandScreen { LoginScreen(
                         isLoading = state.isLoading,
                         onLogin = { email, password, rememberMe ->
                             auth.login(LoginRequest(email.trim(), password), rememberMe)
@@ -183,14 +188,14 @@ class MainActivity : ComponentActivity() {
                         onForgotPassword = {
                             Toast.makeText(this, "Forgot password coming soon", Toast.LENGTH_SHORT).show()
                         }
-                    )
-                    AuthRoute.REGISTER -> RegisterScreen(
+                    ) }
+                    AuthRoute.REGISTER -> com.campussphere.app.ui.theme.LightBrandScreen { RegisterScreen(
                         isLoading = state.isLoading,
                         onRegister = { name, email, phone, password, role, collegeCode ->
                             auth.register(RegisterRequest(name.trim(), email.trim(), phone.trim(), password, role, collegeCode))
                         },
                         onLogin = auth::showLogin
-                    )
+                    ) }
                     AuthRoute.ACCEPT_INVITATION -> {
                         DisposableEffect(Unit) {
                             val secureFlag = WindowManager.LayoutParams.FLAG_SECURE
