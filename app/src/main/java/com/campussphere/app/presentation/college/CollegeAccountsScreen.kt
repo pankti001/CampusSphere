@@ -2,14 +2,12 @@ package com.campussphere.app.presentation.college
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -21,6 +19,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.campussphere.app.data.remote.api.CollegePerson
 import com.campussphere.app.data.repository.CollegeAdminFailure
 import com.campussphere.app.data.repository.CollegeAdminRepository
+import com.campussphere.app.ui.brand.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -118,6 +117,9 @@ class CollegeAccountsViewModel(private val repo: CollegeAdminRepository, private
     }
 }
 
+private val ACCOUNT_KINDS = listOf("faculty", "students")
+private val STATUS_FILTERS = listOf("active" to "Active", "deactivated" to "Deactivated")
+
 @Composable
 fun CollegeAccountsScreen(repo: CollegeAdminRepository, auth: () -> String, lost: (Int) -> Unit, exit: () -> Unit) {
     val owner = remember { object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() } }
@@ -129,88 +131,99 @@ fun CollegeAccountsScreen(repo: CollegeAdminRepository, auth: () -> String, lost
     BackHandler { if (ui.editing != null) vm.edit(null) else exit() }
     val person = ui.editing
 
-    LazyColumn(Modifier.fillMaxSize().safeDrawingPadding().imePadding(), contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item {
-            TextButton({ if (person != null) vm.edit(null) else exit() }, enabled = !ui.busy) { Text("Back") }
-            Text(if (person == null) "Accounts" else person.name, style = MaterialTheme.typography.headlineMedium)
-            if (person == null) Text("Faculty and student accounts of your college, including deactivated ones.",
-                style = MaterialTheme.typography.bodyMedium)
-            if (ui.loading || ui.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-            ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
-            ui.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp)) }
-        }
-        if (person != null) item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("${person.email}${person.department?.let { " · $it" } ?: ""}", style = MaterialTheme.typography.bodyMedium)
-                Text(if (person.active) "Active: can sign in." else "Deactivated: cannot sign in. Their history is kept.",
-                    color = if (person.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                OutlinedTextField(ui.name, vm::changeName, label = { Text("Full name") }, singleLine = true,
-                    enabled = !ui.busy, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(ui.phone, vm::changePhone, label = { Text("Phone (10 digits, optional)") }, singleLine = true,
-                    enabled = !ui.busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    supportingText = { Text("The email cannot be changed here because it is used to sign in.") },
-                    modifier = Modifier.fillMaxWidth())
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(vm::save, enabled = !ui.busy) { Text("Save") }
-                    TextButton({ vm.edit(null) }, enabled = !ui.busy) { Text("Cancel") }
+    CampusPage(
+        title = person?.name ?: "Accounts",
+        subtitle = if (person == null) "Faculty and students, including deactivated accounts" else person.email,
+        onBack = { if (person != null) vm.edit(null) else exit() },
+        backEnabled = !ui.busy,
+        busy = ui.loading || ui.busy,
+        // The list (per tab and status filter) and each person keep their own scroll position.
+        stateKey = if (person != null) "edit-${person.id}" else "list-${ui.kind}-${ui.active}",
+        error = ui.error,
+        notice = ui.notice,
+    ) {
+        if (person != null) {
+            item(key = "status") {
+                InfoCard {
+                    StatusChip(if (person.active) "Active" else "Deactivated", if (person.active) Tone.Positive else Tone.Danger)
+                    InfoRow("Email", person.email)
+                    person.department?.let { InfoRow("Department", it) }
+                    Text(if (person.active) "Can sign in." else "Can't sign in. Their history is kept.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                HorizontalDivider()
-                if (person.active) OutlinedButton({ confirm = false }, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
-                    Text("Deactivate account")
-                } else Button({ confirm = true }, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) { Text("Reactivate account") }
+            }
+            item(key = "form") {
+                InfoCard {
+                    OutlinedTextField(ui.name, vm::changeName, label = { Text("Full name") }, singleLine = true,
+                        enabled = !ui.busy, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(ui.phone, vm::changePhone, label = { Text("Phone (10 digits, optional)") }, singleLine = true,
+                        enabled = !ui.busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        supportingText = { Text("The email can't be changed here because it's used to sign in.") },
+                        shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SecondaryButton("Cancel", { vm.edit(null) }, Modifier.weight(1f), enabled = !ui.busy)
+                        PrimaryButton("Save", vm::save, Modifier.weight(1f), enabled = !ui.busy, icon = CampusIcons.Check)
+                    }
+                }
+            }
+            item(key = "access") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SectionHeader("Sign-in access")
+                    if (person.active) SecondaryButton("Deactivate account", { confirm = false }, enabled = !ui.busy,
+                        icon = CampusIcons.Hide, danger = true)
+                    else SecondaryButton("Reactivate account", { confirm = true }, enabled = !ui.busy, icon = CampusIcons.Refresh)
+                }
             }
         } else {
-            item {
+            item(key = "kind") {
+                CampusTabs(listOf("Faculty", "Students"), ACCOUNT_KINDS.indexOf(ui.kind).coerceAtLeast(0)) {
+                    vm.setKind(ACCOUNT_KINDS[it])
+                }
+            }
+            item(key = "filters") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(ui.kind == "faculty", { vm.setKind("faculty") }, { Text("Faculty") })
-                        FilterChip(ui.kind == "students", { vm.setKind("students") }, { Text("Students") })
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(ui.active == null, { vm.setActiveFilter(null) }, { Text("All") })
-                        FilterChip(ui.active == true, { vm.setActiveFilter(true) }, { Text("Active") })
-                        FilterChip(ui.active == false, { vm.setActiveFilter(false) }, { Text("Deactivated") })
-                    }
-                    OutlinedTextField(ui.query, vm::setQuery, label = { Text("Search by name or email") }, singleLine = true,
-                        trailingIcon = { TextButton(vm::load, enabled = !ui.loading) { Text("Search") } },
-                        modifier = Modifier.fillMaxWidth())
-                }
-            }
-            if (ui.loaded && ui.people.isEmpty() && ui.error == null) item {
-                Text(when {
-                    ui.query.isNotBlank() -> "Nobody matches your search."
-                    ui.active == false -> "No deactivated accounts."
-                    ui.kind == "faculty" -> "No faculty accounts yet. Faculty register in the app with your college code, then you approve them under Faculty."
-                    else -> "No student accounts yet. Students register in the app and request to join your college; approve them under Students."
-                })
-            }
-            items(ui.people, key = { it.id }) { p ->
-                OutlinedCard(onClick = { vm.edit(p) }, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(p.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            Text(p.email, style = MaterialTheme.typography.bodySmall)
-                            Text(listOfNotNull(p.department, p.phone).joinToString(" · ").ifEmpty { "No department yet" },
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Surface(color = if (p.active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
-                            shape = MaterialTheme.shapes.small) {
-                            Text(if (p.active) "Active" else "Deactivated", Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelMedium)
-                        }
+                    SearchField(ui.query, vm::setQuery, "Search by name or email", onSearch = vm::load)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ChoiceChip("Status", STATUS_FILTERS, when (ui.active) {
+                            true -> "active"
+                            false -> "deactivated"
+                            null -> null
+                        }) { vm.setActiveFilter(it?.let { key -> key == "active" }) }
+                        Spacer(Modifier.weight(1f))
+                        if (ui.query.isNotBlank()) TextButton(vm::load, enabled = !ui.loading) { Text("Search") }
                     }
                 }
+            }
+            if (ui.loaded && ui.people.isEmpty() && ui.error == null) item(key = "empty") {
+                when {
+                    ui.query.isNotBlank() -> EmptyState("No matches", "Nobody matches your search.")
+                    ui.active == false -> EmptyState("No deactivated accounts", "Everyone here can sign in.")
+                    ui.kind == "faculty" -> EmptyState("No faculty accounts yet",
+                        "Faculty register in the app with your college code, then you approve them under Faculty.")
+                    else -> EmptyState("No student accounts yet",
+                        "Students register in the app and ask to join your college. Approve them under Students.")
+                }
+            }
+            items(ui.people, key = { "person-${it.id}" }) { p ->
+                ListRow(p.name, subtitle = p.email,
+                    meta = listOfNotNull(p.department, p.phone).joinToString(" · ").ifEmpty { "No department yet" },
+                    icon = CampusIcons.Users,
+                    chip = { StatusChip(if (p.active) "Active" else "Deactivated", if (p.active) Tone.Positive else Tone.Danger) },
+                    // Rows can't be opened while a change is saving, as before.
+                    onClick = { if (!ui.busy) vm.edit(p) })
             }
         }
     }
 
     confirm?.let { activate ->
-        AlertDialog(onDismissRequest = { confirm = null },
-            title = { Text(if (activate) "Reactivate this account?" else "Deactivate this account?") },
-            text = { Text(if (activate) "They can sign in again with their existing password."
-                          else "They are signed out and cannot sign in. Their attendance, materials, assignments and enrollments are kept. You can reactivate them later.") },
-            confirmButton = { TextButton({ confirm = null; vm.setActive(activate) }) { Text(if (activate) "Reactivate" else "Deactivate") } },
-            dismissButton = { TextButton({ confirm = null }) { Text("Cancel") } })
+        ConfirmDialog(
+            title = if (activate) "Reactivate this account?" else "Deactivate this account?",
+            body = if (activate) "They can sign in again with their existing password."
+                   else "They're signed out and can't sign in. Their attendance, materials, assignments and enrollments are kept. You can reactivate them later.",
+            confirm = if (activate) "Reactivate" else "Deactivate",
+            onConfirm = { confirm = null; vm.setActive(activate) },
+            onDismiss = { confirm = null },
+            danger = !activate,
+        )
     }
 }

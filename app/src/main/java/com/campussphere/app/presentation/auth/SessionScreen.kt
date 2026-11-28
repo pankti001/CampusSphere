@@ -1,21 +1,35 @@
 package com.campussphere.app.presentation.auth
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.campussphere.app.presentation.auth.viewmodel.AuthRoute
 import com.campussphere.app.presentation.auth.viewmodel.AuthUiState
+import com.campussphere.app.ui.brand.CampusIcons
+import com.campussphere.app.ui.brand.MessageBanner
+import com.campussphere.app.ui.brand.MessageKind
+import com.campussphere.app.ui.brand.PrimaryButton
+import com.campussphere.app.ui.brand.SecondaryButton
 
 @Composable
 fun SessionScreen(state: AuthUiState, onRefresh: () -> Unit, onReapply: () -> Unit, onLogout: () -> Unit,
@@ -44,46 +58,70 @@ fun SessionScreen(state: AuthUiState, onRefresh: () -> Unit, onReapply: () -> Un
         account?.verified == false -> "Your account must be verified before you can open the Student dashboard."
         else -> "Your account has no dashboard access."
     }
+    // Same order of checks as the title, so the picture always matches the heading.
+    val symbol = when {
+        role != null -> CampusIcons.Building
+        state.route == AuthRoute.CLEAR_SESSION -> CampusIcons.Logout
+        state.route == AuthRoute.RETRY_SESSION -> CampusIcons.Refresh
+        account?.facultyStatus == "PENDING" -> CampusIcons.Clock
+        account?.facultyStatus == "REJECTED" -> CampusIcons.Warning
+        account?.verified == false -> CampusIcons.Clock
+        else -> CampusIcons.Info
+    }
+    val enabled = !state.isLoading
+    val reapply = role == null && account?.facultyStatus == "REJECTED"
+    val hasLinks = listOf(onDepartments, onAcademicYears, onFaculty, onStudents, onStudentAffiliation,
+        onAnnouncements, onTimetable, onMaterials, onAttendance).any { it != null }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
-    ) {
-        Text(title, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
-        Text(message, textAlign = TextAlign.Center)
-        state.error?.let { Text(it.message, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
-        if (state.route == AuthRoute.CLEAR_SESSION) {
-            Button(onClick = onLogout, enabled = !state.isLoading) { Text("Retry sign out") }
-        } else {
-            onDepartments?.let { open ->
-                Button(onClick = open, enabled = !state.isLoading) { Text("Manage departments") }
+    Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            SoftIcon(symbol)
+            Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+            Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center)
+            state.error?.let { MessageBanner(it.message, MessageKind.Error) }
+            if (state.route == AuthRoute.CLEAR_SESSION) {
+                PrimaryButton("Retry sign out", onClick = onLogout, enabled = enabled, icon = CampusIcons.Logout)
+            } else {
+                onDepartments?.let { SecondaryButton("Manage departments", it, enabled = enabled, icon = CampusIcons.Building) }
+                onAcademicYears?.let { SecondaryButton("Academic years", it, enabled = enabled, icon = CampusIcons.Calendar) }
+                onFaculty?.let { SecondaryButton("Manage faculty", it, enabled = enabled, icon = CampusIcons.Users) }
+                onStudents?.let { SecondaryButton("Manage students", it, enabled = enabled, icon = CampusIcons.Users) }
+                onStudentAffiliation?.let {
+                    SecondaryButton("Request college affiliation", it, enabled = enabled, icon = CampusIcons.Handshake)
+                }
+                onAnnouncements?.let { SecondaryButton("Announcements", it, enabled = enabled, icon = CampusIcons.Megaphone) }
+                onTimetable?.let {
+                    SecondaryButton("Timetables: create, upload or copy", it, enabled = enabled, icon = CampusIcons.Calendar)
+                }
+                onMaterials?.let { SecondaryButton("Study materials", it, enabled = enabled, icon = CampusIcons.Book) }
+                onAttendance?.let { SecondaryButton("Attendance reports", it, enabled = enabled, icon = CampusIcons.Checklist) }
+                if (reapply) {
+                    PrimaryButton("Reapply for Faculty", onClick = onReapply, enabled = enabled)
+                }
+                val refreshText = if (state.route == AuthRoute.RETRY_SESSION) "Retry" else "Refresh access"
+                // Refresh is the main action only when nothing else on the page is.
+                if (!reapply && !hasLinks) {
+                    PrimaryButton(refreshText, onClick = onRefresh, enabled = enabled, icon = CampusIcons.Refresh)
+                } else {
+                    SecondaryButton(refreshText, onClick = onRefresh, enabled = enabled, icon = CampusIcons.Refresh)
+                }
+                TextButton(onClick = onLogout, enabled = enabled) { Text("Sign out") }
             }
-            onAcademicYears?.let { open ->
-                Button(onClick = open, enabled = !state.isLoading) { Text("Academic years") }
-            }
-            onFaculty?.let { open ->
-                Button(onClick = open, enabled = !state.isLoading) { Text("Manage faculty") }
-            }
-            onStudents?.let { open ->
-                Button(onClick = open, enabled = !state.isLoading) { Text("Manage students") }
-            }
-            onStudentAffiliation?.let { open ->
-                Button(onClick = open, enabled = !state.isLoading) { Text("Request college affiliation") }
-            }
-            onAnnouncements?.let { Button(onClick = it, enabled = !state.isLoading) { Text("Announcements") } }
-            onTimetable?.let { Button(onClick = it, enabled = !state.isLoading) { Text("Timetables: create, upload or copy") } }
-            onMaterials?.let { Button(onClick = it, enabled = !state.isLoading) { Text("Study materials") } }
-            onAttendance?.let { open ->
-                Button(onClick = open, enabled = !state.isLoading) { Text("Attendance reports") }
-            }
-            if (role == null && account?.facultyStatus == "REJECTED") {
-                Button(onClick = onReapply, enabled = !state.isLoading) { Text("Reapply for Faculty") }
-            }
-            OutlinedButton(onClick = onRefresh, enabled = !state.isLoading) {
-                Text(if (state.route == AuthRoute.RETRY_SESSION) "Retry" else "Refresh access")
-            }
-            TextButton(onClick = onLogout, enabled = !state.isLoading) { Text("Sign out") }
         }
+    }
+}
+
+/** A line icon in a soft tinted circle, as on the dashboards. */
+@Composable
+private fun SoftIcon(icon: ImageVector) {
+    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
+        Icon(icon, contentDescription = null, modifier = Modifier.padding(16.dp).size(28.dp))
     }
 }

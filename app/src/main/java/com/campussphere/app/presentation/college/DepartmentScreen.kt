@@ -1,23 +1,26 @@
 package com.campussphere.app.presentation.college
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.campussphere.app.data.remote.dto.AcademicCatalogItem
+import com.campussphere.app.ui.brand.*
 
 @Composable
 fun DepartmentScreen(state: DepartmentState, model: DepartmentViewModel,
                      onPrograms: ((AcademicCatalogItem) -> Unit)? = null, onBack: () -> Unit) {
     AcademicCatalogScreen(state, model, "department", "Departments",
         "No departments have been added to your college yet.",
-        actionLabel = "Manage programs", itemAction = onPrograms, canDeactivate = true, onBack = onBack)
+        actionLabel = "Manage programs", itemAction = onPrograms, canDeactivate = true,
+        stateKey = "departments", onBack = onBack)
 }
 
 @Composable
@@ -25,147 +28,150 @@ fun ProgramScreen(state: DepartmentState, model: AcademicCatalogViewModel, depar
                   onSemesters: ((AcademicCatalogItem) -> Unit)? = null, onBack: () -> Unit) {
     AcademicCatalogScreen(state, model, "program", "Programs",
         "No programs have been added to this department yet.", department.name,
-        actionLabel = "Manage semesters", itemAction = onSemesters, onBack = onBack)
+        actionLabel = "Manage semesters", itemAction = onSemesters,
+        stateKey = "programs-${department.id}", onBack = onBack)
 }
 
+/**
+ * One level of the academic structure (departments, programs, years, semesters, divisions or subjects): a searchable
+ * list, and an add/edit form. [stateKey] names the level so its list and form each keep their own scroll position.
+ */
 @Composable
 internal fun AcademicCatalogScreen(state: DepartmentState, model: AcademicCatalogViewModel, resource: String,
     titleText: String, emptyText: String, parentName: String? = null,
     codeLabel: String = "${resource.replaceFirstChar { it.uppercaseChar() }} code",
     actionLabel: String = "", itemAction: ((AcademicCatalogItem) -> Unit)? = null,
     selectItem: ((AcademicCatalogItem) -> Unit)? = null, codeHint: String? = null, withDates: Boolean = false,
-    canDeactivate: Boolean = false, onBack: () -> Unit) {
+    canDeactivate: Boolean = false, stateKey: String = resource, onBack: () -> Unit) {
     var search by remember { mutableStateOf("") }
     var confirmActive by remember { mutableStateOf<Boolean?>(null) }
     val form = state.form
     confirmActive?.let { activate ->
         val item = state.list.orEmpty().firstOrNull { it.id == form?.id }
-        AlertDialog(onDismissRequest = { confirmActive = null },
-            title = { Text(if (activate) "Reactivate this $resource?" else "Deactivate this $resource?") },
-            text = { Text(if (activate) "It can receive new programs, faculty and students again."
-                          else "Its programs, people and history stay. It cannot receive new programs, faculty or students until you reactivate it.") },
-            confirmButton = { TextButton(onClick = { confirmActive = null; item?.let { model.setActive(it, activate) } }) {
-                Text(if (activate) "Reactivate" else "Deactivate") } },
-            dismissButton = { TextButton(onClick = { confirmActive = null }) { Text("Cancel") } })
+        ConfirmDialog(
+            title = if (activate) "Reactivate this $resource?" else "Deactivate this $resource?",
+            body = if (activate) "It can receive new programs, faculty and students again."
+                   else "Its programs, people and history stay. It cannot receive new programs, faculty or students until you reactivate it.",
+            confirm = if (activate) "Reactivate" else "Deactivate",
+            onConfirm = { confirmActive = null; item?.let { model.setActive(it, activate) } },
+            onDismiss = { confirmActive = null },
+            danger = !activate)
     }
     fun back() { if (form != null) model.cancelEdit() else onBack() }
     BackHandler { if (!state.busy) back() }
 
-    Surface {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().safeDrawingPadding().imePadding(),
-            contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item(key = "heading") {
-                TextButton(onClick = ::back, enabled = !state.busy) { Text("Back") }
-                val title = when {
-                    form == null -> titleText
-                    form.id == null -> "Add $resource"
-                    else -> "Edit $resource"
-                }
-                Text(title, style = MaterialTheme.typography.headlineMedium)
-                parentName?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+    val title = when {
+        form == null -> titleText
+        form.id == null -> "Add $resource"
+        else -> "Edit $resource"
+    }
+    val capitalised = resource.replaceFirstChar { it.uppercaseChar() }
+
+    CampusPage(
+        title = title,
+        subtitle = parentName,
+        onBack = ::back,
+        backEnabled = !state.busy,
+        busy = state.busy,
+        // The list and each form keep their own scroll position.
+        stateKey = if (form == null) "$stateKey-list" else "$stateKey-form-${form.id ?: "new"}",
+        // In the form, problems are shown next to the fields instead.
+        error = if (form == null) state.error else null,
+        onRetry = if (form == null && state.list == null) ({ model.refresh() }) else null,
+        notice = state.notice,
+        actions = {
+            if (form == null && state.list != null) {
+                IconButton({ model.refresh() }, enabled = !state.busy) { Icon(CampusIcons.Refresh, "Refresh") }
             }
-            if (state.busy) item(key = "loading") {
-                CircularProgressIndicator(Modifier.semantics { contentDescription = "Loading $titleText" })
-            }
-            if (form == null) state.error?.let { item(key = "error") { Text(it, color = MaterialTheme.colorScheme.error) } }
-            state.notice?.let { item(key = "notice") { Text(it, color = MaterialTheme.colorScheme.primary) } }
-            if (form != null) {
-                item(key = "name-field") {
+        },
+    ) {
+        if (form != null) {
+            item(key = "form") {
+                InfoCard {
                     OutlinedTextField(form.name, model::changeName,
-                        label = { Text("${resource.replaceFirstChar { it.uppercaseChar() }} name") }, singleLine = true, enabled = !state.busy,
-                        modifier = Modifier.fillMaxWidth())
-                }
-                item(key = "code-field") {
+                        label = { Text("$capitalised name") }, singleLine = true, enabled = !state.busy,
+                        shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(form.code, model::changeCode,
                         label = { Text(codeLabel) }, singleLine = true, enabled = !state.busy,
                         supportingText = { Text(codeHint ?: "Short code, for example CS or BSC-CS. Letters, digits, - and _.") },
-                        isError = state.error != null, modifier = Modifier.fillMaxWidth())
-                }
-                if (withDates) item(key = "date-fields") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        isError = state.error != null, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth())
+                    if (withDates) {
                         Text("Dates (optional)", style = MaterialTheme.typography.titleSmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(form.startDate, model::changeStart, label = { Text("Start") },
                                 placeholder = { Text("2026-06-01") }, singleLine = true, enabled = !state.busy,
-                                modifier = Modifier.weight(1f))
+                                shape = MaterialTheme.shapes.small, modifier = Modifier.weight(1f))
                             OutlinedTextField(form.endDate, model::changeEnd, label = { Text("End") },
                                 placeholder = { Text("2027-05-31") }, singleLine = true, enabled = !state.busy,
-                                modifier = Modifier.weight(1f))
+                                shape = MaterialTheme.shapes.small, modifier = Modifier.weight(1f))
                         }
                         Text("YYYY-MM-DD. Give both or leave both empty." +
                             if (resource == "semester") " A semester must fall inside its academic year's dates." else "",
-                            style = MaterialTheme.typography.bodySmall)
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    state.error?.let { MessageBanner(it, MessageKind.Error) }
+                    PrimaryButton("Save $resource", model::save, enabled = !state.busy, icon = CampusIcons.Check)
+                    SecondaryButton("Cancel", model::cancelEdit, enabled = !state.busy)
+                }
+            }
+            val current = state.list.orEmpty().firstOrNull { it.id == form.id }
+            if (canDeactivate && current != null) item(key = "status") {
+                val inactive = current.active == false
+                InfoCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Status", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        StatusChip(if (inactive) "Inactive" else "Active", if (inactive) Tone.Danger else Tone.Positive)
+                    }
+                    if (inactive) {
+                        Text("Kept for history, but no new programs or people can be added.",
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        SecondaryButton("Reactivate $resource", { confirmActive = true }, enabled = !state.busy,
+                            icon = CampusIcons.Refresh)
+                    } else {
+                        SecondaryButton("Deactivate $resource", { confirmActive = false }, enabled = !state.busy,
+                            icon = CampusIcons.Archive, danger = true)
                     }
                 }
-                state.error?.let { item(key = "form-error") { Text(it, color = MaterialTheme.colorScheme.error) } }
-                item(key = "save") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = model::save, enabled = !state.busy) { Text("Save $resource") }
-                        TextButton(onClick = model::cancelEdit, enabled = !state.busy) { Text("Cancel") }
-                    }
+            }
+        } else {
+            val list = state.list
+            // Without an error message the banner has no Retry, so offer it here.
+            if (list == null && !state.busy && state.error == null) item(key = "retry") {
+                SecondaryButton("Retry", { model.refresh() }, icon = CampusIcons.Refresh)
+            }
+            if (list != null) {
+                item(key = "add") {
+                    PrimaryButton("Add $resource", { model.edit() }, enabled = !state.busy, icon = CampusIcons.Plus)
                 }
-                val current = state.list.orEmpty().firstOrNull { it.id == form.id }
-                if (canDeactivate && current != null) item(key = "status") {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        HorizontalDivider()
-                        if (current.active == false) {
-                            Text("Inactive: kept for history, but no new programs or people can be added.",
-                                style = MaterialTheme.typography.bodySmall)
-                            Button(onClick = { confirmActive = true }, enabled = !state.busy) { Text("Reactivate $resource") }
-                        } else OutlinedButton(onClick = { confirmActive = false }, enabled = !state.busy) { Text("Deactivate $resource") }
+                if (list.isEmpty()) item(key = "empty-list") { EmptyState("No ${resource}s yet", emptyText) }
+                else {
+                    item(key = "search") { SearchField(search, { search = it }, "Search ${resource}s") }
+                    val query = search.trim()
+                    val visible = list.filter { it.name.contains(query, true) || it.code.contains(query, true) }
+                    if (visible.isEmpty()) item(key = "empty-search") {
+                        EmptyState("No matches", "No ${resource}s match your search.")
                     }
-                }
-            } else {
-                val departments = state.list
-                if (departments == null && !state.busy) {
-                    item(key = "retry") { OutlinedButton(onClick = model::refresh) { Text("Retry") } }
-                }
-                if (departments != null) {
-                    item(key = "list-actions") {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { model.edit() }, enabled = !state.busy) { Text("Add $resource") }
-                            OutlinedButton(onClick = model::refresh, enabled = !state.busy) { Text("Refresh") }
-                        }
-                    }
-                    if (departments.isEmpty()) item(key = "empty-list") { Text(emptyText) }
-                    else {
-                        item(key = "search") {
-                            OutlinedTextField(search, { search = it }, label = { Text("Search ${resource}s") },
-                                singleLine = true, modifier = Modifier.fillMaxWidth())
-                        }
-                        val query = search.trim()
-                        val visible = departments.filter { it.name.contains(query, true) || it.code.contains(query, true) }
-                        if (visible.isEmpty()) item(key = "empty-search") { Text("No ${resource}s match your search.") }
-                        items(visible, key = { it.id }) { department ->
-                            Card(onClick = { if (selectItem == null) model.edit(department) else selectItem(department) },
-                                enabled = !state.busy) {
-                                Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(department.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f, fill = false))
-                                        if (department.active == false) StatusLabel("Inactive", MaterialTheme.colorScheme.errorContainer)
-                                        if (isCurrent(department.startDate, department.endDate)) StatusLabel("Current", MaterialTheme.colorScheme.primaryContainer)
-                                    }
-                                    Text(department.code)
-                                    periodLabel(department.startDate, department.endDate)?.let {
-                                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    // The next level (programs, semesters, subjects, divisions) is a clear button; tapping the card edits it.
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                                        itemAction?.let { open ->
-                                            FilledTonalButton(onClick = { open(department) }, enabled = !state.busy) {
-                                                Text("$actionLabel →")
-                                            }
-                                        }
-                                        if (selectItem == null) OutlinedButton(onClick = { model.edit(department) }, enabled = !state.busy) {
-                                            Text("Edit")
-                                        } else OutlinedButton(onClick = { selectItem(department) }, enabled = !state.busy) {
-                                            Text("Semesters →")
-                                        }
-                                    }
+                    items(visible, key = { "item-${it.id}" }) { entry ->
+                        // Tapping the row edits it (or opens its semesters); the next level is a clear button.
+                        CatalogRow(entry, resourceIcon(resource), enabled = !state.busy,
+                            onClick = { if (selectItem == null) model.edit(entry) else selectItem(entry) }) {
+                            itemAction?.let { open ->
+                                FilledTonalButton(onClick = { open(entry) }, enabled = !state.busy, shape = MaterialTheme.shapes.small) {
+                                    Text(actionLabel)
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(CampusIcons.ChevronRight, null, Modifier.size(18.dp))
                                 }
+                            }
+                            if (selectItem == null) OutlinedButton(onClick = { model.edit(entry) }, enabled = !state.busy,
+                                shape = MaterialTheme.shapes.small) {
+                                Icon(CampusIcons.Edit, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Edit")
+                            } else OutlinedButton(onClick = { selectItem(entry) }, enabled = !state.busy,
+                                shape = MaterialTheme.shapes.small) {
+                                Text("Semesters")
+                                Spacer(Modifier.width(4.dp))
+                                Icon(CampusIcons.ChevronRight, null, Modifier.size(18.dp))
                             }
                         }
                     }
@@ -175,10 +181,46 @@ internal fun AcademicCatalogScreen(state: DepartmentState, model: AcademicCatalo
     }
 }
 
+private fun resourceIcon(resource: String): ImageVector = when (resource) {
+    "department" -> CampusIcons.Building
+    "program" -> CampusIcons.Book
+    "academic year", "semester" -> CampusIcons.Calendar
+    "division" -> CampusIcons.Users
+    else -> CampusIcons.Books
+}
+
+/** A list row in the kit's style (icon, name, code, dates, status) with the row's own buttons underneath. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StatusLabel(text: String, color: androidx.compose.ui.graphics.Color) {
-    Surface(color = color, shape = MaterialTheme.shapes.small) {
-        Text(text, Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelMedium)
+private fun CatalogRow(item: AcademicCatalogItem, icon: ImageVector, enabled: Boolean, onClick: () -> Unit,
+                       actions: @Composable RowScope.() -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+        color = scheme.surfaceContainerLowest, border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.7f))) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = MaterialTheme.shapes.small, color = scheme.primaryContainer, contentColor = scheme.onPrimaryContainer) {
+                    Icon(icon, null, Modifier.padding(8.dp).size(20.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(item.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(item.code, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    periodLabel(item.startDate, item.endDate)?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.outline, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (item.active == false) StatusChip("Inactive", Tone.Danger)
+                    if (isCurrent(item.startDate, item.endDate)) StatusChip("Current", Tone.Accent)
+                }
+            }
+            // Wraps onto a second line on narrow phones instead of squeezing the labels.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                actions()
+            }
+        }
     }
 }
 

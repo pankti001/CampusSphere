@@ -4,20 +4,31 @@ package com.campussphere.app.presentation.auth
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.campussphere.app.ui.brand.CampusIcons
+import com.campussphere.app.ui.brand.CampusLogo
+import com.campussphere.app.ui.brand.InfoCard
+import com.campussphere.app.ui.brand.MessageBanner
+import com.campussphere.app.ui.brand.MessageKind
+import com.campussphere.app.ui.brand.PrimaryButton
+import com.campussphere.app.ui.brand.SectionHeader
+import com.campussphere.app.ui.theme.Brand
 
 @Composable
 fun RegisterScreen(
@@ -42,204 +53,135 @@ fun RegisterScreen(
 
     var errorMessage by remember { mutableStateOf("") }
 
-    val primaryBlue = com.campussphere.app.ui.theme.Brand.Blue
-
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(androidx.compose.ui.graphics.Brush.verticalGradient(
-                listOf(com.campussphere.app.ui.theme.Brand.Sky, Color.White)))
+            .background(Brush.verticalGradient(listOf(Brand.Sky, Color.White)))
             .safeDrawingPadding()
             .verticalScroll(rememberScrollState())
             .imePadding()
-            .padding(horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        com.campussphere.app.ui.brand.CampusLogo(size = 88.dp, animate = true)
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text(
-            text = "Create account",
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color = com.campussphere.app.ui.theme.Brand.Navy
-        )
+        CampusLogo(size = 88.dp, animate = true)
 
-        Spacer(modifier = Modifier.height(6.dp))
-
-        Text(
-            text = "Join the CampusSphere community",
-            color = Color.Gray,
-            fontSize = 14.sp
-        )
-
-        Spacer(modifier = Modifier.height(30.dp))
-
-        // Full Name
-        RegisterField(
-            label = "Full Name",
-            value = fullName,
-            onValueChange = { fullName = it },
-            placeholder = "Enter your full name"
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Email
-        RegisterField(
-            label = "Email Address",
-            value = email,
-            onValueChange = { email = it },
-            placeholder = "Enter your email",
-            keyboardType = KeyboardType.Email
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Phone
-        RegisterField(
-            label = "Phone Number",
-            value = phone,
-            onValueChange = {
-                if (it.length <= 10 && it.all(Char::isDigit)) {
-                    phone = it
-                }
-            },
-            placeholder = "Enter your phone number",
-            keyboardType = KeyboardType.Phone
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Password
-        RegisterField(
-            label = "Password",
-            value = password,
-            onValueChange = { password = it },
-            placeholder = "Create password",
-            keyboardType = KeyboardType.Password,
-            visualTransformation = if (passwordVisible)
-                VisualTransformation.None
-            else
-                PasswordVisualTransformation(),
-            trailingText = if (passwordVisible) "Hide" else "Show",
-            onTrailingClick = {
-                passwordVisible = !passwordVisible
-            }
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Confirm Password
-        RegisterField(
-            label = "Confirm Password",
-            value = confirmPassword,
-            onValueChange = { confirmPassword = it },
-            placeholder = "Confirm your password",
-            keyboardType = KeyboardType.Password,
-            visualTransformation = if (confirmVisible)
-                VisualTransformation.None
-            else
-                PasswordVisualTransformation(),
-            trailingText = if (confirmVisible) "Hide" else "Show",
-            onTrailingClick = {
-                confirmVisible = !confirmVisible
-            }
-        )
-
-        Spacer(modifier = Modifier.height(22.dp))
-
-        // Role Selection
-        Column(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = "Register As",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold
+                text = "Create account",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Brand.Navy
             )
+            Text(
+                text = "Join the CampusSphere community",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
 
-            Spacer(modifier = Modifier.height(8.dp))
+        SectionHeader("Your details")
+        InfoCard {
+            RegisterField(
+                label = "Full name",
+                value = fullName,
+                onValueChange = { fullName = it },
+                placeholder = "Enter your full name"
+            )
+            RegisterField(
+                label = "Email address",
+                value = email,
+                onValueChange = { email = it },
+                placeholder = "Enter your email",
+                keyboardType = KeyboardType.Email
+            )
+            RegisterField(
+                label = "Phone number",
+                value = phone,
+                onValueChange = {
+                    if (it.length <= 10 && it.all(Char::isDigit)) {
+                        phone = it
+                    }
+                },
+                placeholder = "Enter your phone number",
+                keyboardType = KeyboardType.Phone
+            )
+        }
 
+        SectionHeader("Password")
+        InfoCard {
+            RegisterField(
+                label = "Password",
+                value = password,
+                onValueChange = { password = it },
+                placeholder = "Create password",
+                keyboardType = KeyboardType.Password,
+                visualTransformation = if (passwordVisible)
+                    VisualTransformation.None
+                else
+                    PasswordVisualTransformation(),
+                visible = passwordVisible,
+                onToggleVisible = { passwordVisible = !passwordVisible }
+            )
+            RegisterField(
+                label = "Confirm password",
+                value = confirmPassword,
+                onValueChange = { confirmPassword = it },
+                placeholder = "Confirm your password",
+                keyboardType = KeyboardType.Password,
+                visualTransformation = if (confirmVisible)
+                    VisualTransformation.None
+                else
+                    PasswordVisualTransformation(),
+                visible = confirmVisible,
+                onToggleVisible = { confirmVisible = !confirmVisible }
+            )
+        }
+
+        SectionHeader("Register as")
+        InfoCard {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().selectableGroup(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                RoleOption("Student", selectedRole == "STUDENT", Modifier.weight(1f)) { selectedRole = "STUDENT" }
+                RoleOption("Faculty", selectedRole == "FACULTY", Modifier.weight(1f)) { selectedRole = "FACULTY" }
+            }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    RadioButton(
-                        selected = selectedRole == "STUDENT",
-                        onClick = { selectedRole = "STUDENT" },
-                        colors = RadioButtonDefaults.colors(
-                            selectedColor = primaryBlue
-                        )
-                    )
-
-                    Text("Student", fontSize = 14.sp)
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    RadioButton(
-                        selected = selectedRole == "FACULTY",
-                        onClick = { selectedRole = "FACULTY" },
-                        colors = RadioButtonDefaults.colors(
-                            selectedColor = primaryBlue
-                        )
-                    )
-
-                    Text("Faculty", fontSize = 14.sp)
-                }
+            if (selectedRole == "FACULTY") {
+                OutlinedTextField(
+                    value = collegeCode,
+                    onValueChange = { collegeCode = it },
+                    label = { Text("College code") },
+                    supportingText = { Text("Enter the code provided by your college.") },
+                    enabled = !isLoading,
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(15.dp))
-
-        if (selectedRole == "FACULTY") {
-            OutlinedTextField(
-                value = collegeCode,
-                onValueChange = { collegeCode = it },
-                label = { Text("College code") },
-                supportingText = { Text("Enter the code provided by your college.") },
-                enabled = !isLoading,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        // Error Message
         if (errorMessage.isNotEmpty()) {
-            Text(
-                text = errorMessage,
-                color = MaterialTheme.colorScheme.error,
-                fontSize = 13.sp
-            )
+            MessageBanner(errorMessage, MessageKind.Error)
         }
 
-        Spacer(modifier = Modifier.height(15.dp))
-
-        // Create Account
-        Button(
+        PrimaryButton(
+            text = if (isLoading) "Creating account…" else "Create account",
             enabled = !isLoading,
             onClick = {
 
                 errorMessage = when {
                     fullName.isBlank() ->
-                        "Please enter your full name"
+                        "Enter your full name"
 
                     email.isBlank() || !android.util.Patterns.EMAIL_ADDRESS
                         .matcher(email.trim()).matches() ->
-                        "Please enter a valid email"
+                        "Enter a valid email"
 
                     phone.length != 10 ->
                         "Enter a valid 10-digit phone number"
@@ -267,50 +209,41 @@ fun RegisterScreen(
                         collegeCode.trim().takeIf { selectedRole == "FACULTY" }
                     )
                 }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(55.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = primaryBlue
-            )
-        ) {
-            Text(
-                text = if (isLoading) "Creating account..." else "Create Account",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+            }
+        )
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Login Navigation
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "Already have an account?",
-                color = Color.Gray,
-                fontSize = 13.sp
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
             TextButton(onClick = onLogin, enabled = !isLoading) {
-                Text(
-                    text = "Login",
-                    color = primaryBlue,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("Sign in", fontWeight = FontWeight.SemiBold)
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
 
-// Reusable Registration Field
+/** One choice of the "Register as" group; the whole row is tappable. */
+@Composable
+private fun RoleOption(text: String, selected: Boolean, modifier: Modifier = Modifier, onSelect: () -> Unit) {
+    Row(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .selectable(selected = selected, onClick = onSelect, role = Role.RadioButton),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(8.dp))
+        Text(text, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+// Reusable registration field
 
 @Composable
 private fun RegisterField(
@@ -320,43 +253,28 @@ private fun RegisterField(
     placeholder: String,
     keyboardType: KeyboardType = KeyboardType.Text,
     visualTransformation: VisualTransformation = VisualTransformation.None,
-    trailingText: String? = null,
-    onTrailingClick: (() -> Unit)? = null
+    visible: Boolean = false,
+    onToggleVisible: (() -> Unit)? = null
 ) {
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-
-        Text(
-            text = label,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(modifier = Modifier.height(7.dp))
-
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = {
-                Text(placeholder, fontSize = 13.sp)
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = keyboardType
-            ),
-            visualTransformation = visualTransformation,
-            trailingIcon = {
-                if (trailingText != null && onTrailingClick != null) {
-                    TextButton(onClick = onTrailingClick) {
-                        Text(
-                            text = trailingText,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(label) },
+        placeholder = { Text(placeholder) },
+        singleLine = true,
+        shape = MaterialTheme.shapes.small,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = keyboardType
+        ),
+        visualTransformation = visualTransformation,
+        trailingIcon = if (onToggleVisible != null) ({
+            IconButton(onClick = onToggleVisible) {
+                Icon(
+                    if (visible) CampusIcons.Hide else CampusIcons.Eye,
+                    contentDescription = if (visible) "Hide password" else "Show password"
+                )
             }
-        )
-    }
+        }) else null
+    )
 }

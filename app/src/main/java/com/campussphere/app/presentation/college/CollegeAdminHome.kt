@@ -10,7 +10,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.campussphere.app.ui.brand.appear
+import com.campussphere.app.ui.brand.*
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStore
@@ -76,167 +77,137 @@ class CollegeAdminHomeViewModel(private val repo: CollegeAdminRepository, privat
     }
 }
 
-private data class AdminTile(val icon: String, val title: String, val number: Long?, val lines: List<String>,
-                             val area: AdminArea)
 
-/** The College Admin home: the college, setup progress and every management area with its real numbers. */
+
+/** The College Admin home: the college, approvals, setup progress and every management area. */
 @Composable
 fun CollegeAdminHome(repo: CollegeAdminRepository, auth: () -> String, lost: (Int) -> Unit, signingIn: Boolean,
-                     authError: String?, onRefresh: () -> Unit, onLogout: () -> Unit, open: (AdminArea) -> Unit) {
-    val owner = remember { object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() } }
-    DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
-    val vm = viewModel<CollegeAdminHomeViewModel>(viewModelStoreOwner = owner) { CollegeAdminHomeViewModel(repo, auth, lost) }
+                     authError: String?, onRefresh: () -> Unit, onLogout: () -> Unit, keep: ViewModelStoreOwner? = null,
+                     open: (AdminArea) -> Unit) {
+    // With [keep] (owned by the caller) the numbers stay in memory while another page is open, so Back returns to the
+    // same place on a page that is already full size; it then refreshes.
+    val local = remember { object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() } }
+    DisposableEffect(local) { onDispose { local.viewModelStore.clear() } }
+    val vm = viewModel<CollegeAdminHomeViewModel>(viewModelStoreOwner = keep ?: local) { CollegeAdminHomeViewModel(repo, auth, lost) }
     val ui by vm.ui.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.load() }
     val c = ui.counts
+    fun count(value: Long?) = if (c != null && value != null) value.toString() else if (ui.error != null) "–" else "…"
 
-    val sections = listOf(
-        "Academic setup" to listOf(
-            AdminTile("🏛", "Departments & programs", c?.departments,
-                listOfNotNull(c?.let { "${it.programs} programs · ${it.divisions} divisions · ${it.subjects} subjects" }),
-                AdminArea.DEPARTMENTS),
-            AdminTile("📅", "Academic years", c?.academicYears,
-                listOfNotNull(c?.let { "${it.semesters} semesters" }), AdminArea.YEARS)),
-        "People" to listOf(
-            AdminTile("👩‍🏫", "Faculty", c?.faculty, listOfNotNull(
-                c?.let { "${it.activeAssignments} teaching assignments" },
-                c?.pendingFacultyRequests?.takeIf { it > 0 }?.let { "$it waiting for approval" }), AdminArea.FACULTY),
-            AdminTile("🎓", "Students", c?.students, listOfNotNull(
-                c?.let { "${it.currentEnrollments} enrolled in a class" },
-                c?.pendingStudentRequests?.takeIf { it > 0 }?.let { "$it waiting for approval" }), AdminArea.STUDENTS),
-            AdminTile("🪪", "Accounts", null, listOf("Edit names and phones, deactivate or reactivate"), AdminArea.ACCOUNTS)),
-        "Teaching" to listOf(
-            AdminTile("🗓", "Timetables", c?.publishedTimetables, listOfNotNull(
-                c?.let { "published · ${it.draftTimetables} drafts · ${it.classrooms} classrooms" },
-                c?.divisionsWithoutTimetable?.takeIf { it > 0 }?.let { "$it classes without a timetable" }), AdminArea.TIMETABLES),
-            AdminTile("✅", "Attendance", c?.attendanceSessions, listOf("submitted sessions; reports and alerts"), AdminArea.ATTENDANCE),
-            AdminTile("📚", "Study materials", c?.materials, listOf("published; review and moderate"), AdminArea.MATERIALS),
-            AdminTile("📖", "Syllabus & papers", null, listOf("Coverage, review and moderation"), AdminArea.RESOURCES),
-            AdminTile("📝", "Assignments", null, listOf("Published work, submissions and marking progress"), AdminArea.ASSIGNMENTS)),
-        "Communication" to listOf(
-            AdminTile("📣", "Announcements", c?.liveAnnouncements, listOf("live now"), AdminArea.ANNOUNCEMENTS)),
-    )
-
-    LazyColumn(Modifier.fillMaxSize().safeDrawingPadding(), contentPadding = PaddingValues(20.dp),
+    LazyColumn(Modifier.fillMaxSize().safeDrawingPadding(), contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item {
-            com.campussphere.app.ui.brand.BrandHero(Modifier.appear(0)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    com.campussphere.app.ui.brand.CampusBrandRow(Modifier.weight(1f), logoSize = 34.dp,
-                        fontSize = 16.sp, onDark = true)
-                    TextButton(onLogout, enabled = !signingIn) { Text("Sign out", color = androidx.compose.ui.graphics.Color.White) }
-                }
+        item(key = "hello") {
+            BrandHero(Modifier.appear(0)) {
+                CampusBrandRow(logoSize = 30.dp, fontSize = 15.sp, onDark = true)
                 Spacer(Modifier.height(8.dp))
-                Text(ui.profile?.name ?: "College Admin", style = MaterialTheme.typography.headlineSmall,
-                    color = androidx.compose.ui.graphics.Color.White)
-                Text(ui.profile?.let { "College Admin · code ${it.code} · " + (if (it.active) "active" else "inactive") }
-                    ?: "College Admin", style = MaterialTheme.typography.bodyMedium,
-                    color = com.campussphere.app.ui.theme.Brand.AmberBright)
+                Text(ui.profile?.name ?: "College Admin", style = MaterialTheme.typography.headlineSmall, color = Color.White,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(ui.profile?.let { "College Admin · code ${it.code} · " + (if (it.active) "active" else "inactive") } ?: "College Admin",
+                    style = MaterialTheme.typography.bodyMedium, color = com.campussphere.app.ui.theme.Brand.AmberBright)
             }
-            if (ui.loading || signingIn) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-            (ui.error ?: authError)?.let {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text(it, color = MaterialTheme.colorScheme.onErrorContainer)
-                        TextButton(vm::load, enabled = !ui.loading) { Text("Retry") }
-                    }
+        }
+        if (ui.loading || signingIn) item(key = "loading") { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+        (ui.error ?: authError)?.let { message ->
+            item(key = "error") {
+                MessageBanner(message, MessageKind.Error, actionLabel = "Retry", onAction = vm::load, enabled = !ui.loading)
+            }
+        }
+
+        item(key = "numbers") {
+            Row(Modifier.appear(1), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                NumberTile("Faculty", count(c?.faculty),
+                    caption = c?.let { if (it.pendingFacultyRequests > 0) "${it.pendingFacultyRequests} waiting for approval"
+                        else "${it.activeAssignments} teaching assignments" } ?: "Loading",
+                    tone = if ((c?.pendingFacultyRequests ?: 0) > 0) Tone.Warning else Tone.Accent, modifier = Modifier.weight(1f)) {
+                    open(AdminArea.FACULTY)
+                }
+                NumberTile("Students", count(c?.students),
+                    caption = c?.let { if (it.pendingStudentRequests > 0) "${it.pendingStudentRequests} waiting for approval"
+                        else "${it.currentEnrollments} enrolled in a class" } ?: "Loading",
+                    tone = if ((c?.pendingStudentRequests ?: 0) > 0) Tone.Warning else Tone.Accent, modifier = Modifier.weight(1f)) {
+                    open(AdminArea.STUDENTS)
                 }
             }
         }
+
         c?.let { counts ->
-            val waiting = counts.pendingFacultyRequests + counts.pendingStudentRequests
-            if (waiting > 0) item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-                    modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("$waiting waiting for your approval", style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (counts.pendingFacultyRequests > 0) Button({ open(AdminArea.FACULTY) }) {
-                                Text("${counts.pendingFacultyRequests} faculty")
-                            }
-                            if (counts.pendingStudentRequests > 0) Button({ open(AdminArea.STUDENTS) }) {
-                                Text("${counts.pendingStudentRequests} students")
-                            }
-                        }
-                    }
-                }
-            }
-            if (counts.faculty == 0L && counts.students == 0L) item {
-                OutlinedCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("How faculty and students join", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        val code = ui.profile?.code ?: "your college code"
-                        Text("Faculty: register in the app as Faculty and enter college code $code. Then approve them under Faculty → Approve faculty requests, set their department and add their subjects.",
-                            style = MaterialTheme.typography.bodySmall)
-                        Text("Students: register as Student, sign in and tap Request college affiliation with code $code. Then approve them under Students → Approve student requests and enroll them in a class.",
-                            style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
             val steps = setupSteps(counts)
             val done = steps.count { it.done }
-            if (done < steps.size) item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Setup progress: $done of ${steps.size}", style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold)
-                        LinearProgressIndicator(progress = { done.toFloat() / steps.size }, modifier = Modifier.fillMaxWidth())
-                        val next = steps.firstOrNull { !it.done }
-                        steps.forEachIndexed { i, step ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text((if (step.done) "✓ " else "${i + 1}. ") + step.title, style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = if (step == next) FontWeight.SemiBold else FontWeight.Normal,
-                                    modifier = Modifier.weight(1f))
-                                if (step == next) TextButton({ open(step.area) }) { Text("Do this") }
-                            }
+            if (done < steps.size) item(key = "setup") {
+                HomeCard("Set up your college", Modifier.appear(2)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LinearProgressIndicator(progress = { done.toFloat() / steps.size }, modifier = Modifier.weight(1f))
+                        Text("$done of ${steps.size}", style = MaterialTheme.typography.labelLarge)
+                    }
+                    val next = steps.firstOrNull { !it.done }
+                    steps.forEachIndexed { i, step ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (step.done) Icon(CampusIcons.Check, "Done", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.tertiary)
+                            else Text("${i + 1}", Modifier.width(18.dp), style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(step.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                                color = if (step.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = if (step == next) FontWeight.SemiBold else FontWeight.Normal)
                         }
                     }
+                    next?.let { PrimaryButton("Next: ${it.title.substringBefore(':').substringBefore(" and ")}", { open(it.area) }) }
+                }
+            }
+            if (counts.faculty == 0L && counts.students == 0L) item(key = "join") {
+                HomeCard("How faculty and students join") {
+                    val code = ui.profile?.code ?: "your college code"
+                    InfoRow("Faculty", "Register as Faculty with college code $code. Approve them under Faculty, then set their department and subjects.")
+                    InfoRow("Students", "Register as Student and request affiliation with code $code. Approve them under Students and enroll them in a class.")
                 }
             }
         }
-        sections.forEach { (title, tiles) ->
-            item(key = title) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium)
-                    tiles.chunked(2).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            row.forEach { tile ->
-                                Tile(tile, showNumber = tile.area != AdminArea.ACCOUNTS && tile.area != AdminArea.ASSIGNMENTS && tile.area != AdminArea.RESOURCES, loaded = c != null,
-                                    modifier = Modifier.weight(1f).appear(1)) { open(tile.area) }
-                            }
-                            if (row.size == 1) Spacer(Modifier.weight(1f))
-                        }
-                    }
-                }
+
+        item(key = "manage") {
+            Column(Modifier.appear(3), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionHeader("Manage")
+                ShortcutGrid(listOf(
+                    Shortcut("Faculty", CampusIcons.Users, c?.pendingFacultyRequests ?: 0) { open(AdminArea.FACULTY) },
+                    Shortcut("Students", CampusIcons.Users, c?.pendingStudentRequests ?: 0) { open(AdminArea.STUDENTS) },
+                    Shortcut("Accounts", CampusIcons.Settings, 0) { open(AdminArea.ACCOUNTS) },
+                    Shortcut("Departments", CampusIcons.Building, 0) { open(AdminArea.DEPARTMENTS) },
+                    Shortcut("Academic years", CampusIcons.Calendar, 0) { open(AdminArea.YEARS) },
+                    Shortcut("Timetables", CampusIcons.Clock, 0) { open(AdminArea.TIMETABLES) },
+                    Shortcut("Attendance", CampusIcons.Checklist, 0) { open(AdminArea.ATTENDANCE) },
+                    Shortcut("Assignments", CampusIcons.Homework, 0) { open(AdminArea.ASSIGNMENTS) },
+                    Shortcut("Materials", CampusIcons.Books, 0) { open(AdminArea.MATERIALS) },
+                    Shortcut("Syllabus", CampusIcons.Book, 0) { open(AdminArea.RESOURCES) },
+                    Shortcut("Notices", CampusIcons.Megaphone, 0) { open(AdminArea.ANNOUNCEMENTS) },
+                ))
             }
         }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton({ onRefresh(); vm.load() }, enabled = !signingIn && !ui.loading) { Text("Refresh") }
-                TextButton(onLogout, enabled = !signingIn) { Text("Sign out") }
+
+        if (c != null) item(key = "glance") {
+            HomeCard("College at a glance", Modifier.appear(4)) {
+                GlanceRow("Departments", c.departments, "Programs", c.programs)
+                GlanceRow("Classes", c.divisions, "Subjects", c.subjects)
+                GlanceRow("Published timetables", c.publishedTimetables, "Classes without one", c.divisionsWithoutTimetable)
+                GlanceRow("Lectures recorded", c.attendanceSessions, "Study materials", c.materials)
+                GlanceRow("Live notices", c.liveAnnouncements, "Classrooms", c.classrooms)
+            }
+        }
+
+        item(key = "footer") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                TextButton({ onRefresh(); vm.load() }, enabled = !signingIn && !ui.loading) {
+                    Icon(CampusIcons.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Refresh")
+                }
+                TextButton(onLogout, enabled = !signingIn, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                    Icon(CampusIcons.Logout, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Sign out")
+                }
             }
         }
     }
 }
 
 @Composable
-private fun Tile(tile: AdminTile, showNumber: Boolean, loaded: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    ElevatedCard(onClick = onClick, modifier = modifier.heightIn(min = 128.dp)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(tile.icon, style = MaterialTheme.typography.titleLarge)
-                // A dash while loading or after an error: a number is shown only when it really came from the server.
-                if (showNumber) Text(if (loaded && tile.number != null) tile.number.toString() else "—",
-                    style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            }
-            Text(tile.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            tile.lines.forEach {
-                Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+private fun GlanceRow(leftLabel: String, left: Long, rightLabel: String, right: Long) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) { InfoRow(leftLabel, left.toString()) }
+        Column(Modifier.weight(1f)) { InfoRow(rightLabel, right.toString()) }
     }
 }

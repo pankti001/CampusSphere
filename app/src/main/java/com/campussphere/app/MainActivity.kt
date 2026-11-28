@@ -214,6 +214,10 @@ class MainActivity : ComponentActivity() {
                         PlatformScreen(platformRepository, auth::platformAuthorization, auth::expirePlatformSession,
                             auth::logout)
                     } else if (state.account?.dashboardRole == DashboardRole.COLLEGE_ADMIN) {
+                        // The admin home's numbers live here, so they are still loaded when the admin comes back.
+                        val adminKeep = androidx.compose.runtime.remember { object : androidx.lifecycle.ViewModelStoreOwner {
+                            override val viewModelStore = androidx.lifecycle.ViewModelStore() } }
+                        DisposableEffect(adminKeep) { onDispose { adminKeep.viewModelStore.clear() } }
                         var academicSection by rememberSaveable { mutableStateOf<AcademicSection?>(null) }
                         com.campussphere.app.ui.brand.ScreenSwitch(academicSection) { section ->
                         if (section == AcademicSection.ASSIGNMENTS) com.campussphere.app.presentation.homework.AdminHomeworkScreen(homework, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
@@ -245,7 +249,7 @@ class MainActivity : ComponentActivity() {
                             }
                         } else com.campussphere.app.presentation.college.CollegeAdminHome(collegeAdmin, auth::departmentAuthorization,
                             { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, state.isLoading, state.error?.message,
-                            auth::refresh, auth::logout) { area ->
+                            auth::refresh, auth::logout, keep = adminKeep) { area ->
                             academicSection = when (area) {
                                 com.campussphere.app.presentation.college.AdminArea.DEPARTMENTS -> AcademicSection.DEPARTMENTS
                                 com.campussphere.app.presentation.college.AdminArea.YEARS -> AcademicSection.YEARS
