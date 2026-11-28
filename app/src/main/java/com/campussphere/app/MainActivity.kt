@@ -110,6 +110,8 @@ class MainActivity : ComponentActivity() {
         val studentRepository = StudentRepository(RetrofitClient.createService(StudentApi::class.java),
             departmentRepository, programApi, periodApi, offeringApi)
         val materials = MaterialRepository(RetrofitClient.createService(MaterialApi::class.java))
+        val resources = com.campussphere.app.data.repository.ResourceRepository(
+            RetrofitClient.createService(com.campussphere.app.data.remote.api.ResourceApi::class.java))
         val chats = com.campussphere.app.data.repository.ChatRepository(
             RetrofitClient.createService(com.campussphere.app.data.remote.api.ChatApi::class.java),
             RetrofitClient.streamClient, RetrofitClient.baseUrl)
@@ -219,6 +221,8 @@ class MainActivity : ComponentActivity() {
                         else                         if (section == AcademicSection.TIMETABLES) TimetableAdminScreen(timetables, timetableImports, auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.ANNOUNCEMENTS) AnnouncementScreen(announcements, "college", auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.MATERIALS) MaterialScreen(materials,"college",auth::departmentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
+                        else if (section == AcademicSection.RESOURCES) com.campussphere.app.presentation.resources.ManageResourceScreen(resources, "college",
+                            auth::departmentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { academicSection = null }
                         else if (section == AcademicSection.ATTENDANCE) {
                             AttendanceScreen(attendanceRepository, auth::departmentAuthorization, { status ->
                                 if (status == 401) auth.expirePlatformSession() else auth.refresh()
@@ -253,6 +257,7 @@ class MainActivity : ComponentActivity() {
                                 com.campussphere.app.presentation.college.AdminArea.MATERIALS -> AcademicSection.MATERIALS
                                 com.campussphere.app.presentation.college.AdminArea.ANNOUNCEMENTS -> AcademicSection.ANNOUNCEMENTS
                                 com.campussphere.app.presentation.college.AdminArea.ASSIGNMENTS -> AcademicSection.ASSIGNMENTS
+                                com.campussphere.app.presentation.college.AdminArea.RESOURCES -> AcademicSection.RESOURCES
                             }
                         }
                         }
@@ -267,9 +272,10 @@ class MainActivity : ComponentActivity() {
                         var showHomework by rememberSaveable { mutableStateOf(false) }
                         var homeworkCreate by rememberSaveable { mutableStateOf(false) }
                         var showLearning by rememberSaveable { mutableStateOf(false) }
+                        var showResources by rememberSaveable { mutableStateOf(false) }
                         FacultyNotificationEffects(facultyNotices, auth::facultyAuthorization, noticeRefresh) { unreadNotices = it }
                         val facultyPage = when {
-                            showLearning -> "learning"; showHomework -> "homework"; showNotifications -> "notifications"; showTimetable -> "timetable"
+                            showResources -> "resources"; showLearning -> "learning"; showHomework -> "homework"; showNotifications -> "notifications"; showTimetable -> "timetable"
                             showAnnouncements -> "announcements"; showMaterials -> "materials"; showAttendance -> "attendance"
                             else -> "home"
                         }
@@ -284,6 +290,8 @@ class MainActivity : ComponentActivity() {
                             unreadNotices = unreadNotices, onNotices = { showTimetable = false; showNotifications = true }) { showTimetable = false }
                         "announcements" -> AnnouncementScreen(announcements, "faculty", auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showAnnouncements = false }
                         "materials" -> MaterialScreen(materials,"faculty",auth::facultyAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
+                        "resources" -> com.campussphere.app.presentation.resources.ManageResourceScreen(resources, "faculty",
+                            auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showResources = false }
                         "attendance" -> AttendanceScreen(attendanceRepository, auth::facultyAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, AttendanceMode.FACULTY) { showAttendance = false }
@@ -292,6 +300,7 @@ class MainActivity : ComponentActivity() {
                         }, auth::logout, dashboard = true, onMaterials = { showMaterials = true }, onAttendance = { showAttendance = true },
                             onAnnouncements = { showAnnouncements = true }, onTimetable = { showTimetable = true },
                             onNotifications = { showNotifications = true }, unreadNotifications = unreadNotices,
+                            onResources = { showResources = true },
                             homeworkCard = {
                                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                     com.campussphere.app.presentation.homework.FacultyHomeworkCard(homework, auth::facultyAuthorization,
@@ -319,8 +328,10 @@ class MainActivity : ComponentActivity() {
                         var chatId by rememberSaveable { mutableStateOf<Long?>(null) }
                         var skillsOpen by rememberSaveable { mutableStateOf(false) }
                         var chatFromSkills by rememberSaveable { mutableStateOf(false) }
+                        var resourcesOpen by rememberSaveable { mutableStateOf(false) }
                         val studentPage = when {
-                            chatsOpen -> "chats"; skillsOpen -> "skills"; openTab != null -> "homework"; showTimetable -> "timetable"
+                            chatsOpen -> "chats"; skillsOpen -> "skills"; resourcesOpen -> "resources"
+                            openTab != null -> "homework"; showTimetable -> "timetable"
                             showAnnouncements -> "announcements"; showMaterials -> "materials"; showAttendance -> "attendance"
                             else -> "home"
                         }
@@ -336,6 +347,8 @@ class MainActivity : ComponentActivity() {
                         "timetable" -> MyTimetableScreen(timetables, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showTimetable = false }
                         "announcements" -> AnnouncementScreen(announcements, "student", auth::studentAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showAnnouncements = false }
                         "materials" -> MaterialScreen(materials,"student",auth::studentAuthorization,{ if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showMaterials = false }
+                        "resources" -> com.campussphere.app.presentation.resources.StudentResourceScreen(resources, auth::studentAuthorization,
+                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { resourcesOpen = false }
                         "attendance" -> AttendanceScreen(attendanceRepository, auth::studentAuthorization, { status ->
                             if (status == 401) auth.expirePlatformSession() else auth.refresh()
                         }, AttendanceMode.STUDENT) { showAttendance = false }
@@ -343,7 +356,7 @@ class MainActivity : ComponentActivity() {
                             vmFactory = {
                                 com.campussphere.app.presentation.student.StudentHomeViewModel(chats, attendanceRepository, timetables,
                                     homework, materials, announcements, skills, auth::studentAuthorization,
-                                    { if (it == 401) auth.expirePlatformSession() else auth.refresh() })
+                                    { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, resources)
                             },
                             homeworkCard = {
                                 com.campussphere.app.presentation.homework.StudentHomeworkCard(homework, auth::studentAuthorization,
@@ -357,6 +370,7 @@ class MainActivity : ComponentActivity() {
                                     com.campussphere.app.presentation.student.StudentArea.ANNOUNCEMENTS -> showAnnouncements = true
                                     com.campussphere.app.presentation.student.StudentArea.CHATS -> { chatId = id; chatsOpen = true }
                                     com.campussphere.app.presentation.student.StudentArea.SKILLS -> skillsOpen = true
+                                    com.campussphere.app.presentation.student.StudentArea.RESOURCES -> resourcesOpen = true
                                 }
                             },
                             onRefreshAccount = auth::refresh, onLogout = auth::logout)
@@ -379,7 +393,7 @@ class MainActivity : ComponentActivity() {
         !BuildConfig.DEBUG || Build.VERSION.SDK_INT < 37 ||
             checkSelfPermission(LOCAL_NETWORK_PERMISSION) == PackageManager.PERMISSION_GRANTED
 
-    private enum class AcademicSection { YEARS, DEPARTMENTS, FACULTY, STUDENTS, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, TIMETABLES, ACCOUNTS, ASSIGNMENTS }
+    private enum class AcademicSection { YEARS, DEPARTMENTS, FACULTY, STUDENTS, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, TIMETABLES, ACCOUNTS, ASSIGNMENTS, RESOURCES }
 
     private companion object {
         const val LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"

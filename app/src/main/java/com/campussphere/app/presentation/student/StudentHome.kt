@@ -47,6 +47,7 @@ data class StudentHomeUi(
     val announcements: Section<List<AnnouncementItem>> = Section(),
     val chats: Section<List<ChatConversation>> = Section(),
     val skills: Section<SkillSummary> = Section(),
+    val resources: Section<List<ResourceSubject>> = Section(),
 )
 
 /** Something coming up, for the "Upcoming" list: a lesson later today, a deadline or an event notice. */
@@ -82,6 +83,7 @@ internal fun failureStatus(e: Throwable): Int? = when (e) {
     is AnnouncementFailure -> e.status
     is MaterialFailure -> e.status
     is SkillFailure -> e.status
+    is ResourceFailure -> e.status
     else -> null
 }
 
@@ -90,6 +92,7 @@ class StudentHomeViewModel(
     private val timetable: TimetableRepository, private val homework: HomeworkRepository,
     private val materials: MaterialRepository, private val announcements: AnnouncementRepository,
     private val skills: SkillRepository, private val auth: () -> String, private val lost: (Int) -> Unit,
+    private val resources: ResourceRepository? = null,
 ) : ViewModel() {
     private val state = MutableStateFlow(StudentHomeUi())
     val ui = state.asStateFlow()
@@ -131,11 +134,16 @@ class StudentHomeViewModel(
         }
         section({ it.chats }, { copy(chats = it) }, "Chats are not available right now.") { chats.conversations(auth()) }
         section({ it.skills }, { copy(skills = it) }, "Skill Exchange is not available right now.") { skills.summary(auth()) }
+        resources?.let { repo ->
+            section({ it.resources }, { copy(resources = it) }, "Syllabus and question papers are not available right now.") {
+                repo.subjects(auth())
+            }
+        }
     }
 }
 
 /** Where a dashboard button leads. */
-enum class StudentArea { TIMETABLE, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, CHATS, SKILLS }
+enum class StudentArea { TIMETABLE, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, CHATS, SKILLS, RESOURCES }
 
 @Composable
 fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Composable () -> Unit,
@@ -242,7 +250,17 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Comp
             }
         }
         item {
-            Panel("📣 Announcements", ui.announcements, "Open", { open(StudentArea.ANNOUNCEMENTS, null) }, order = 8, tint = Color(0xFFFCE7F3)) { list ->
+            Panel("📖 Syllabus & question papers", ui.resources, "Open", { open(StudentArea.RESOURCES, null) }, order = 8,
+                tint = Color(0xFFFFEDD5)) { list ->
+                val syllabus = list.count { it.syllabusVersions > 0 }
+                val papers = list.sumOf { it.papers }
+                Text(if (list.isEmpty()) "No subjects yet."
+                    else "Syllabus for $syllabus of ${list.size} subject" + (if (list.size == 1) "" else "s") +
+                        " · $papers question paper" + if (papers == 1L) "" else "s")
+            }
+        }
+        item {
+            Panel("📣 Announcements", ui.announcements, "Open", { open(StudentArea.ANNOUNCEMENTS, null) }, order = 9, tint = Color(0xFFFCE7F3)) { list ->
                 if (list.isEmpty()) Text("No announcements.")
                 list.take(3).forEach {
                     Text("• ${it.title}" + if (it.read == false) "  (new)" else "", maxLines = 1, overflow = TextOverflow.Ellipsis,

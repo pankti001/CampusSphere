@@ -26,7 +26,7 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
                   onExit: () -> Unit, dashboard: Boolean = false, onAttendance: (() -> Unit)? = null, onMaterials: (() -> Unit)? = null,
                   onAnnouncements: (() -> Unit)? = null, onTimetable: (() -> Unit)? = null,
                   onNotifications: (() -> Unit)? = null, unreadNotifications: Int = 0,
-                  homeworkCard: (@Composable () -> Unit)? = null) {
+                  homeworkCard: (@Composable () -> Unit)? = null, onResources: (() -> Unit)? = null) {
     val owner = remember {
         object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
     }
@@ -65,6 +65,7 @@ fun FacultyScreen(repository: FacultyRepository, authorization: () -> String, on
                     onTimetable?.let { add(Triple("🗓", "My timetable" to "Your lessons this week", it)) }
                     onAttendance?.let { add(Triple("✅", "Attendance" to "Take and review class attendance", it)) }
                     onMaterials?.let { add(Triple("📚", "Study materials" to "Share notes and files", it)) }
+                    onResources?.let { add(Triple("📖", "Syllabus & papers" to "Upload syllabus and past question papers", it)) }
                     onAnnouncements?.let { add(Triple("📣", "Announcements" to "Notices for your classes", it)) }
                 }
                 val tints = listOf(Color(0xFFFEF3C7), Color(0xFFDBE6FF), Color(0xFFDCFCE7), Color(0xFFCCFBF1), Color(0xFFFCE7F3))

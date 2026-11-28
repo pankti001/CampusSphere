@@ -30,7 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** Where a home-screen tile or setup step leads. */
-enum class AdminArea { DEPARTMENTS, YEARS, FACULTY, STUDENTS, ACCOUNTS, TIMETABLES, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, ASSIGNMENTS }
+enum class AdminArea { DEPARTMENTS, YEARS, FACULTY, STUDENTS, ACCOUNTS, TIMETABLES, ATTENDANCE, MATERIALS, ANNOUNCEMENTS, ASSIGNMENTS, RESOURCES }
 
 data class SetupStep(val title: String, val done: Boolean, val area: AdminArea)
 
@@ -111,6 +111,7 @@ fun CollegeAdminHome(repo: CollegeAdminRepository, auth: () -> String, lost: (In
                 c?.divisionsWithoutTimetable?.takeIf { it > 0 }?.let { "$it classes without a timetable" }), AdminArea.TIMETABLES),
             AdminTile("✅", "Attendance", c?.attendanceSessions, listOf("submitted sessions; reports and alerts"), AdminArea.ATTENDANCE),
             AdminTile("📚", "Study materials", c?.materials, listOf("published; review and moderate"), AdminArea.MATERIALS),
+            AdminTile("📖", "Syllabus & papers", null, listOf("Coverage, review and moderation"), AdminArea.RESOURCES),
             AdminTile("📝", "Assignments", null, listOf("Published work, submissions and marking progress"), AdminArea.ASSIGNMENTS)),
         "Communication" to listOf(
             AdminTile("📣", "Announcements", c?.liveAnnouncements, listOf("live now"), AdminArea.ANNOUNCEMENTS)),
@@ -203,7 +204,7 @@ fun CollegeAdminHome(repo: CollegeAdminRepository, auth: () -> String, lost: (In
                     tiles.chunked(2).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                             row.forEach { tile ->
-                                Tile(tile, showNumber = tile.area != AdminArea.ACCOUNTS && tile.area != AdminArea.ASSIGNMENTS, loaded = c != null,
+                                Tile(tile, showNumber = tile.area != AdminArea.ACCOUNTS && tile.area != AdminArea.ASSIGNMENTS && tile.area != AdminArea.RESOURCES, loaded = c != null,
                                     modifier = Modifier.weight(1f).appear(1)) { open(tile.area) }
                             }
                             if (row.size == 1) Spacer(Modifier.weight(1f))
