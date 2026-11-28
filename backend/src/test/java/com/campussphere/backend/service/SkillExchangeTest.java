@@ -68,12 +68,13 @@ class SkillExchangeTest {
                 a -> offers.stream().filter(o -> o.college() == n(a.get(0)) && o.id() == n(a.get(1)) && o.owner() == n(a.get(2)))
                         .map(Row::status).toList());
         // The full offer view: args (me, college, id, me) for one offer.
-        db.answer("FROM public.skill_offers o JOIN public.users u", a -> a.size() == 4
+        // The full offer view for one offer: args (me, college, id, me, division).
+        db.answer("FROM public.skill_offers o JOIN public.users u", a -> a.size() == 5
                 ? offers.stream().filter(o -> o.college() == n(a.get(1)) && o.id() == n(a.get(2))
                         && (o.status().equals("ACTIVE") || o.owner() == n(a.get(3)))).map(o -> offer(o.id(), o.owner())).toList()
                 : List.of());
         // Requests: (college, id, me, me) for the rule row; (college, me, me, id) for the view.
-        db.answer("SELECT id, provider_id, learner_id, offer_id, exchange_offer_id, status FROM public.skill_requests",
+        db.answer("SELECT id, provider_id, learner_id, offer_id, exchange_offer_id, status, want_id FROM public.skill_requests",
                 a -> Optional.ofNullable(requests.get(n(a.get(1)))).filter(r -> requestCollege.get(r.id()) == n(a.get(0))
                         && (r.providerId() == n(a.get(2)) || r.learnerId() == n(a.get(2)))).stream().toList());
         db.on("INSERT INTO public.skill_requests", 210L);
@@ -99,7 +100,7 @@ class SkillExchangeTest {
                     ? List.of(session(sid)) : List.of();
         });
         db.on("INSERT INTO public.skill_offers", 102L);
-        db.on("SELECT (SELECT count(*) FROM public.skill_offers", new long[]{1, 0, 0, 0, 0});
+        db.on("SELECT (SELECT count(*) FROM public.skill_offers", new long[]{1, 0, 0, 0, 0, 0, 0, 0});
         // Reviews.
         db.on("INSERT INTO public.skill_reviews", 900L);
         db.answer("FROM public.skill_reviews r JOIN public.users u", a -> n(a.get(0)) == A
@@ -117,12 +118,12 @@ class SkillExchangeTest {
 
     static Offer offer(long id, long owner) {
         return new Offer(id, owner, "Asha Patel", "BCA · A", "Java", "PROGRAMMING", "", "BEGINNER", "", "BOTH", "ACTIVE",
-                null, 0, owner == ME, null, List.of());
+                null, 0, owner == ME, null, List.of(), "COLLEGE");
     }
 
     static Request request(long id, long provider, long learner, String status) {
         return new Request(id, A_OFFER, "Java", provider, "Asha Patel", learner, "Riya Shah", null, null, "", status, NOW,
-                null, provider == ME, provider == ME ? learner : provider, "Asha Patel", false, 0);
+                null, provider == ME, provider == ME ? learner : provider, "Asha Patel", false, 0, null, null);
     }
 
     static Session session(long id) {
@@ -253,18 +254,63 @@ class SkillExchangeTest {
 
     @Test void remindersStayInsideEachSessionsCollege() {
         db.on("INSERT INTO public.skill_notifications (college_id, student_id, kind, event_key, title, body, session_id)", 2);
-        assertEquals(4, skills.sendReminders());
-        var reminders = db.calls("'SESSION_REMINDER'");
-        assertEquals(2, reminders.size());
-        for (var r : reminders) {
+        db.on("INSERT INTO public.skill_notifications (college_id, student_id, kind, event_key, title, body, group_id", 3);
+        db.on("INSERT INTO public.skill_notifications (college_id, student_id, kind, event_key, title, body, faculty_request_id)", 4);
+        db.on("INSERT INTO public.skill_faculty_notices", 1);
+        assertEquals(2 * (2 + 3 + 4 + 1), skills.sendReminders());
+        var oneToOne = db.calls("FROM public.skill_sessions s");
+        assertEquals(2, oneToOne.size());
+        for (var r : oneToOne) {
             assertTrue(r.sql().contains("SELECT s.college_id, p.student_id"));
             assertTrue(r.sql().contains("o.college_id = s.college_id"));
             assertTrue(r.sql().contains("(VALUES (s.teacher_id), (s.pupil_id))"), "only the session's two students");
         }
-        assertEquals(List.of("reminder24:", "Session within a day", "1 hour", "24 hours"), reminders.get(0).args());
-        assertEquals(List.of("reminder1:", "Session within the hour", "0 minutes", "1 hour"), reminders.get(1).args());
+        assertEquals(List.of("reminder24:", "Session within a day", "1 hour", "24 hours"), oneToOne.get(0).args());
+        assertEquals(List.of("reminder1:", "Session within the hour", "0 minutes", "1 hour"), oneToOne.get(1).args());
+        // Group sessions: the teaching student and current learners of that group, in the group's college.
+        for (var r : db.calls("FROM public.skill_group_sessions gs")) {
+            assertTrue(r.sql().contains("SELECT gs.college_id, p.student_id"));
+            assertTrue(r.sql().contains("g.college_id = gs.college_id"));
+            assertTrue(r.sql().contains("m.college_id = g.college_id AND m.group_id = g.id AND m.left_at IS NULL"));
+        }
+        // Faculty sessions: the students who joined (and the faculty member), in the request's college.
+        for (var r : db.calls("FROM public.skill_faculty_requests fr")) {
+            assertTrue(r.sql().contains("fr.status = 'ACCEPTED'"));
+            assertTrue(r.sql().contains("SELECT fr.college_id"));
+        }
+        assertEquals(4, db.calls("FROM public.skill_faculty_requests fr").size());
     }
 
+    @Test void classOnlySkillsAreLimitedToTheStudentsOwnClass() {
+        db.on("SELECT division_id FROM public.student_enrollments", List.of(31L));
+        var me = student(ME, A);
+        skills.browse(me, new Filter(null, null, null, null, 0));
+        var market = db.calls("o.status = 'ACTIVE'").get(0);
+        assertTrue(market.sql().contains("(o.audience = 'COLLEGE' OR o.division_id = ?)"));
+        assertEquals(31L, market.args().get(3), "the class comes from the student's own enrollment");
+        skills.offer(me, A_OFFER);
+        var one = db.calls("AND o.id = ?").get(0);
+        assertTrue(one.sql().contains("o.audience = 'COLLEGE' OR o.division_id = ?"));
+        assertEquals(31L, one.args().get(4));
+        assertThrows(Exception.class, () -> skills.createRequest(me, new RequestInput(B_OFFER, null, "")));
+        var lookup = db.calls("SELECT student_id FROM public.skill_offers").get(0);
+        assertTrue(lookup.sql().contains("(audience = 'COLLEGE' OR division_id = ?)"));
+        assertEquals(List.of(A, B_OFFER, 31L), lookup.args());
+    }
+
+    @Test void sharingWithTheClassNeedsAClass() {
+        var me = student(ME, A);
+        var classOnly = new OfferInput("Java basics", "PROGRAMMING", "", "BEGINNER", "", "BOTH", List.of(), "CLASS");
+        assertError(ApiError.SKILL_NO_CLASS, () -> skills.createOffer(me, classOnly));
+        assertFalse(db.ran("INSERT INTO public.skill_offers"));
+        db.on("SELECT division_id FROM public.student_enrollments", List.of(31L));
+        skills.createOffer(me, classOnly);
+        var insert = db.calls("INSERT INTO public.skill_offers").get(0);
+        assertEquals(List.of("CLASS", 31L), insert.args().subList(8, 10));
+        assertError(ApiError.SKILL_INVALID, () -> SkillExchange.cleanOffer(
+                new OfferInput("Java", "PROGRAMMING", "", "BEGINNER", "", "BOTH", List.of(), "WORLD")));
+        assertEquals("COLLEGE", SkillExchange.cleanOffer(validOffer()).audience());
+    }
     // ---------------------------------------------------------------------------------------------------------
     // Rules
     // ---------------------------------------------------------------------------------------------------------
@@ -336,11 +382,15 @@ class SkillExchangeTest {
 
     @Test void theLearnerOnlyTeachesBackInAMutualExchange() {
         var oneWay = new RequestRow(1, MATE, ME, A_OFFER, null, "ACCEPTED");
-        assertEquals(A_OFFER, SkillExchange.taughtOffer(oneWay, MATE));
+        assertEquals(Long.valueOf(A_OFFER), SkillExchange.taughtOffer(oneWay, MATE));
         assertError(ApiError.SKILL_INVALID, () -> SkillExchange.taughtOffer(oneWay, ME));
         var exchange = new RequestRow(1, MATE, ME, A_OFFER, MY_OFFER, "ACCEPTED");
-        assertEquals(MY_OFFER, SkillExchange.taughtOffer(exchange, ME));
-        assertEquals(A_OFFER, SkillExchange.taughtOffer(exchange, MATE));
+        assertEquals(Long.valueOf(MY_OFFER), SkillExchange.taughtOffer(exchange, ME));
+        assertEquals(Long.valueOf(A_OFFER), SkillExchange.taughtOffer(exchange, MATE));
+        // A request from a post has no offer: only the volunteer teaches, and the session has no offer.
+        var fromPost = new SkillExchange.RequestRow(1, MATE, ME, null, null, "ACCEPTED", 77L);
+        assertNull(SkillExchange.taughtOffer(fromPost, MATE));
+        assertError(ApiError.SKILL_INVALID, () -> SkillExchange.taughtOffer(fromPost, ME));
         assertError(ApiError.SKILL_INVALID, () -> SkillExchange.taughtOffer(exchange, STRANGER));
     }
 

@@ -8,6 +8,8 @@ public enum ApiError {
     SKILL_STATE_CONFLICT(HttpStatus.CONFLICT, "This cannot be done in its current state. Refresh and try again."),
     SKILL_DUPLICATE(HttpStatus.CONFLICT, "You already offer this skill, or already have an open request for it."),
     SKILL_REVIEW_EXISTS(HttpStatus.CONFLICT, "You have already reviewed this session."),
+    SKILL_NO_CLASS(HttpStatus.CONFLICT, "You are not in a class yet, so share with the whole college instead."),
+    SKILL_GROUP_FULL(HttpStatus.CONFLICT, "This learning group is full."),
     CHAT_NOT_FOUND(HttpStatus.NOT_FOUND, "The chat or message was not found."),
     CHAT_INVALID(HttpStatus.BAD_REQUEST, "Check the message or group details and try again."),
     CHAT_NOT_ALLOWED(HttpStatus.FORBIDDEN, "You cannot do that in this chat."),

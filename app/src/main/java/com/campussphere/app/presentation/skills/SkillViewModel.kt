@@ -13,7 +13,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class SkillPage { MARKET, OFFER, MINE, FORM, REQUESTS, REQUEST, SESSIONS, NOTICES, REVIEWS }
+enum class SkillPage { MARKET, OFFER, MINE, FORM, REQUESTS, REQUEST, SESSIONS, NOTICES, REVIEWS,
+    WANTS, WANT, WANT_FORM, GROUPS, GROUP, FACULTY, FACULTY_FORM, FACULTY_REQUEST }
+
+/** A pending "I can teach this" offer on a post, or a pending cancel of a group session (with its reason). */
+data class SkillHelpDraft(val want: SkillWant, val message: String = "")
+data class GroupCancelDraft(val session: SkillGroupSession, val reason: String = "")
 
 /** A pending "ask to learn": the message and, for a mutual exchange, which of the student's own skills they offer back. */
 data class SkillAsk(val offer: SkillOffer, val message: String = "", val exchangeOfferId: Long? = null)
@@ -39,6 +44,17 @@ data class SkillUi(
     val history: Boolean = false, val sessions: List<SkillSession> = emptyList(), val action: SkillSessionAction? = null,
     // Notifications
     val notices: List<SkillNotice> = emptyList(), val unread: Long = 0,
+    // "I want to learn" posts
+    val wantsMine: Boolean = false, val wants: List<SkillWant> = emptyList(), val want: SkillWantDetail? = null,
+    val wantForm: SkillWantForm? = null, val wantFormError: String? = null, val commentDraft: String = "",
+    val help: SkillHelpDraft? = null,
+    // Learning groups
+    val groups: List<SkillGroup> = emptyList(), val group: SkillGroupDetail? = null,
+    val groupSessionForm: SkillSessionForm? = null, val groupFormError: String? = null, val groupCancel: GroupCancelDraft? = null,
+    // Learning from faculty
+    val facultyRequests: List<FacultyLearningRequest> = emptyList(), val facultyRequest: FacultyLearningDetail? = null,
+    val facultyChoices: List<SkillFacultyChoice> = emptyList(), val facultyForm: FacultyAskForm? = null,
+    val facultyFormError: String? = null,
 )
 
 class SkillViewModel(private val repo: SkillRepository, private val chats: ChatRepository, private val auth: () -> String,
@@ -77,9 +93,12 @@ class SkillViewModel(private val repo: SkillRepository, private val chats: ChatR
         val s = state.value
         if (s.ask != null) { state.update { it.copy(ask = null) }; return true }
         if (s.action != null) { state.update { it.copy(action = null) }; return true }
+        if (s.help != null) { state.update { it.copy(help = null) }; return true }
+        if (s.groupCancel != null) { state.update { it.copy(groupCancel = null) }; return true }
         val previous = s.stack.lastOrNull() ?: return false
         state.update { it.copy(page = previous, stack = it.stack.dropLast(1), error = null, notice = null, form = null,
-            formError = null, sessionForm = null, sessionFormError = null) }
+            formError = null, sessionForm = null, sessionFormError = null, wantForm = null, wantFormError = null,
+            groupSessionForm = null, groupFormError = null, facultyForm = null, facultyFormError = null) }
         refreshPage()
         return true
     }
@@ -101,6 +120,12 @@ class SkillViewModel(private val repo: SkillRepository, private val chats: ChatR
             SkillPage.REQUESTS -> openRequests(state.value.incoming)
             SkillPage.SESSIONS -> openSessions(state.value.history)
             SkillPage.REQUEST -> state.value.request?.let { openRequest(it.id) }
+            SkillPage.WANTS -> openWants(state.value.wantsMine)
+            SkillPage.WANT -> state.value.want?.let { openWant(it.want.id) }
+            SkillPage.GROUPS -> openGroups()
+            SkillPage.GROUP -> state.value.group?.let { openGroup(it.group.id) }
+            SkillPage.FACULTY -> openFaculty()
+            SkillPage.FACULTY_REQUEST -> state.value.facultyRequest?.let { openFacultyRequest(it.request.id) }
             else -> Unit
         }
     }
@@ -308,8 +333,208 @@ class SkillViewModel(private val repo: SkillRepository, private val chats: ChatR
             }
         }
         when {
+            notice.wantId != null -> openWant(notice.wantId)
+            notice.groupId != null -> openGroup(notice.groupId)
+            notice.facultyRequestId != null -> openFacultyRequest(notice.facultyRequestId)
             notice.requestId != null -> openRequest(notice.requestId)
             notice.sessionId != null -> openSessions(notice.kind == "REVIEW_NEW")
+        }
+    }
+
+    // ---- "I want to learn" posts ----
+
+    fun openWants(mine: Boolean = state.value.wantsMine) = work {
+        val list = repo.wants(auth(), mine)
+        state.update { it.copy(wantsMine = mine, wants = list) }
+        go(SkillPage.WANTS)
+    }
+
+    fun openWant(id: Long) = work {
+        val detail = repo.want(auth(), id)
+        state.update { it.copy(want = detail, commentDraft = "") }
+        go(SkillPage.WANT)
+    }
+
+    private suspend fun reloadWant(id: Long) {
+        val detail = repo.want(auth(), id)
+        state.update { s -> s.copy(want = detail, wants = s.wants.map { if (it.id == id) detail.want else it }) }
+    }
+
+    fun newWant() { state.update { it.copy(wantForm = SkillWantForm(), wantFormError = null) }; go(SkillPage.WANT_FORM) }
+    fun editWantForm(form: SkillWantForm) = state.update { it.copy(wantForm = form, wantFormError = null) }
+
+    fun saveWant() {
+        val form = state.value.wantForm ?: return
+        skillWantProblem(form)?.let { problem -> state.update { it.copy(wantFormError = problem) }; return }
+        work("Posted. " + if (form.audience == "CLASS") "Your classmates can see it now." else "Students of your college can see it now.") {
+            val created = repo.postWant(auth(), form)
+            val detail = repo.want(auth(), created.id)
+            // Straight to the new post, in the same step, so the page is never blank.
+            state.update { it.copy(wantForm = null, want = detail, commentDraft = "", page = SkillPage.WANT,
+                stack = it.stack.dropLastWhile { p -> p == SkillPage.WANT_FORM }) }
+        }
+    }
+
+    fun closeWant() {
+        val id = state.value.want?.want?.id ?: return
+        work("Post closed.") { repo.closeWant(auth(), id); reloadWant(id) }
+    }
+
+    fun editComment(text: String) = state.update { it.copy(commentDraft = text.take(1000)) }
+
+    fun sendComment() {
+        val id = state.value.want?.want?.id ?: return
+        val text = state.value.commentDraft.trim()
+        if (text.isEmpty()) return
+        work { repo.comment(auth(), id, text); state.update { it.copy(commentDraft = "") }; reloadWant(id) }
+    }
+
+    fun deleteComment(comment: SkillWantComment) {
+        val id = state.value.want?.want?.id ?: return
+        work("Comment removed.") { repo.deleteComment(auth(), id, comment.id); reloadWant(id) }
+    }
+
+    fun meToo(join: Boolean) {
+        val id = state.value.want?.want?.id ?: return
+        work(if (join) "Added. You will learn together when a teacher is chosen." else "Removed.") { repo.meToo(auth(), id, join); reloadWant(id) }
+    }
+
+    fun startHelp() { state.value.want?.let { d -> state.update { it.copy(help = SkillHelpDraft(d.want)) } } }
+    fun editHelp(draft: SkillHelpDraft) = state.update { it.copy(help = draft.copy(message = draft.message.take(500))) }
+
+    fun sendHelp() {
+        val draft = state.value.help ?: return
+        work("Offer sent to ${draft.want.student.substringBefore(' ')}.") {
+            repo.help(auth(), draft.want.id, draft.message)
+            state.update { it.copy(help = null) }
+            reloadWant(draft.want.id)
+        }
+    }
+
+    fun withdrawHelp() {
+        val id = state.value.want?.want?.id ?: return
+        work("Offer withdrawn.") { repo.withdrawHelp(auth(), id); reloadWant(id) }
+    }
+
+    /** The poster accepts a teacher: everyone who said "Me too" learns too; the new request opens. */
+    fun acceptHelper(helper: SkillWantHelper) {
+        val id = state.value.want?.want?.id ?: return
+        work("${helper.teacher.substringBefore(' ')} will teach you. Propose a session time.") {
+            val request = repo.acceptHelper(auth(), id, helper.id)
+            reloadWant(id)
+            val full = repo.request(auth(), request.id)
+            state.update { it.copy(request = full, requestSessions = emptyList()) }
+            go(SkillPage.REQUEST)
+        }
+    }
+
+    fun declineHelper(helper: SkillWantHelper) {
+        val id = state.value.want?.want?.id ?: return
+        work("Declined.") { val detail = repo.declineHelper(auth(), id, helper.id); state.update { it.copy(want = detail) } }
+    }
+
+    // ---- Learning groups ----
+
+    fun openGroups() = work {
+        val list = repo.groups(auth())
+        state.update { it.copy(groups = list) }
+        go(SkillPage.GROUPS)
+    }
+
+    fun openGroup(id: Long) = work {
+        val detail = repo.group(auth(), id)
+        state.update { it.copy(group = detail, groupSessionForm = null) }
+        go(SkillPage.GROUP)
+    }
+
+    fun openGroupChat() { state.value.group?.group?.conversationId?.let(openChat) }
+
+    fun startGroupSession() = state.update { it.copy(groupSessionForm = SkillSessionForm(teach = true), groupFormError = null) }
+    fun editGroupSession(form: SkillSessionForm) = state.update { it.copy(groupSessionForm = form, groupFormError = null) }
+
+    fun saveGroupSession() {
+        val id = state.value.group?.group?.id ?: return
+        val form = state.value.groupSessionForm ?: return
+        skillSessionTimes(form, java.time.ZonedDateTime.now()).exceptionOrNull()?.let { problem ->
+            state.update { it.copy(groupFormError = problem.message) }
+            return
+        }
+        work("Session set. Every learner in the group was told.") {
+            val detail = repo.groupSession(auth(), id, form)
+            state.update { it.copy(group = detail, groupSessionForm = null) }
+        }
+    }
+
+    fun completeGroupSession(session: SkillGroupSession) {
+        val id = state.value.group?.group?.id ?: return
+        work("Marked as completed.") { val d = repo.completeGroupSession(auth(), id, session.id); state.update { it.copy(group = d) } }
+    }
+
+    fun startGroupCancel(session: SkillGroupSession) = state.update { it.copy(groupCancel = GroupCancelDraft(session)) }
+    fun editGroupCancel(draft: GroupCancelDraft) = state.update { it.copy(groupCancel = draft.copy(reason = draft.reason.take(300))) }
+
+    fun finishGroupCancel() {
+        val id = state.value.group?.group?.id ?: return
+        val draft = state.value.groupCancel ?: return
+        work("Session cancelled. The group was told.") {
+            val d = repo.cancelGroupSession(auth(), id, draft.session.id, draft.reason)
+            state.update { it.copy(group = d, groupCancel = null) }
+        }
+    }
+
+    fun leaveGroup() {
+        val id = state.value.group?.group?.id ?: return
+        work("You left the group.") {
+            repo.leaveGroup(auth(), id)
+            val list = repo.groups(auth())
+            state.update { it.copy(groups = list, group = null, page = SkillPage.GROUPS,
+                stack = it.stack.dropLastWhile { p -> p == SkillPage.GROUP || p == SkillPage.GROUPS }) }
+        }
+    }
+
+    // ---- Learning from faculty ----
+
+    fun openFaculty() = work {
+        val list = repo.facultyRequests(auth())
+        state.update { it.copy(facultyRequests = list) }
+        go(SkillPage.FACULTY)
+    }
+
+    fun openFacultyRequest(id: Long) = work {
+        val detail = repo.facultyRequest(auth(), id)
+        state.update { it.copy(facultyRequest = detail) }
+        go(SkillPage.FACULTY_REQUEST)
+    }
+
+    fun newFacultyAsk() = work {
+        val choices = repo.facultyChoices(auth())
+        state.update { it.copy(facultyChoices = choices, facultyForm = FacultyAskForm(facultyId = choices.firstOrNull { c -> c.teachesMyClass }?.id),
+            facultyFormError = null) }
+        go(SkillPage.FACULTY_FORM)
+    }
+
+    fun editFacultyForm(form: FacultyAskForm) = state.update { it.copy(facultyForm = form, facultyFormError = null) }
+
+    fun sendFacultyAsk() {
+        val form = state.value.facultyForm ?: return
+        facultyAskProblem(form)?.let { problem -> state.update { it.copy(facultyFormError = problem) }; return }
+        work("Request sent. Classmates can join it with \"Me too\".") {
+            val created = repo.askFaculty(auth(), form)
+            val detail = repo.facultyRequest(auth(), created.id)
+            state.update { it.copy(facultyForm = null, facultyRequest = detail, page = SkillPage.FACULTY_REQUEST,
+                stack = it.stack.dropLastWhile { p -> p == SkillPage.FACULTY_FORM }) }
+        }
+    }
+
+    /** action is "join", "leave" or "cancel". */
+    fun facultyAction(action: String) {
+        val id = state.value.facultyRequest?.request?.id ?: return
+        work(when (action) { "join" -> "You joined. You will be told when the faculty replies."; "leave" -> "You left this request."
+            else -> "Request cancelled." }) {
+            repo.facultyRequestAction(auth(), id, action)
+            val detail = repo.facultyRequest(auth(), id)
+            state.update { s -> s.copy(facultyRequest = detail,
+                facultyRequests = s.facultyRequests.map { if (it.id == id) detail.request else it }) }
         }
     }
 }

@@ -18,6 +18,7 @@ val SKILL_CATEGORIES = listOf("PROGRAMMING" to "Programming", "DESIGN" to "Desig
 val SKILL_LEVELS = listOf("BEGINNER" to "Beginner", "INTERMEDIATE" to "Intermediate", "ADVANCED" to "Advanced")
 val SKILL_OFFER_MODES = listOf("ONLINE" to "Online", "IN_PERSON" to "In person", "BOTH" to "Online or in person")
 val SKILL_SESSION_MODES = listOf("ONLINE" to "Online", "IN_PERSON" to "In person")
+val SKILL_AUDIENCES = listOf("CLASS" to "Only my class", "COLLEGE" to "My whole college")
 val SKILL_DAYS = listOf(1 to "Mon", 2 to "Tue", 3 to "Wed", 4 to "Thu", 5 to "Fri", 6 to "Sat", 7 to "Sun")
 
 fun skillLabel(options: List<Pair<String, String>>, key: String?): String = options.firstOrNull { it.first == key }?.second ?: key.orEmpty()
@@ -35,6 +36,8 @@ fun skillErrorMessage(status: Int, code: String?): String = when (code) {
     "SKILL_DUPLICATE" -> "You already offer this skill, or already have an open request for it."
     "SKILL_REVIEW_EXISTS" -> "You have already reviewed this session."
     "NOTIFICATION_NOT_FOUND" -> "This notification is no longer available."
+    "SKILL_NO_CLASS" -> "You are not in a class yet, so share with your whole college instead."
+    "SKILL_GROUP_FULL" -> "This learning group is full."
     "VERIFICATION_REQUIRED" -> "Your account needs verification before you can use Skill Exchange."
     "INVALID_REQUEST" -> "Check the details and try again."
     else -> when (status) {
@@ -50,11 +53,11 @@ fun skillErrorMessage(status: Int, code: String?): String = when (code) {
 data class SkillOfferForm(
     val id: Long? = null, val name: String = "", val category: String = "PROGRAMMING", val description: String = "",
     val level: String = "BEGINNER", val teachingMethod: String = "", val mode: String = "BOTH",
-    val slots: List<SkillSlot> = emptyList(),
+    val slots: List<SkillSlot> = emptyList(), val audience: String = "CLASS",
 )
 
 fun SkillOffer.toForm() = SkillOfferForm(id, name, category, description, level, teachingMethod, mode,
-    slots.map { SkillSlot(it.day, it.start.take(5), it.end.take(5)) })
+    slots.map { SkillSlot(it.day, it.start.take(5), it.end.take(5)) }, audience ?: "COLLEGE")
 
 private fun clock(text: String): LocalTime? = runCatching { LocalTime.parse(text.trim()) }.getOrNull()
 
@@ -75,7 +78,33 @@ fun skillOfferProblem(form: SkillOfferForm): String? {
 }
 
 fun SkillOfferForm.toInput() = SkillOfferInput(name.trim(), category, description.trim(), level, teachingMethod.trim(), mode,
-    slots.map { SkillSlot(it.day, clock(it.start)!!.toString(), clock(it.end)!!.toString()) })
+    slots.map { SkillSlot(it.day, clock(it.start)!!.toString(), clock(it.end)!!.toString()) }, audience)
+
+/** What the student is typing for an "I want to learn" post. */
+data class SkillWantForm(val title: String = "", val details: String = "", val category: String = "OTHER", val audience: String = "CLASS")
+
+fun skillWantProblem(form: SkillWantForm): String? = when {
+    form.title.trim().length < 3 -> "Say what you want to learn in at least 3 characters."
+    form.title.trim().length > 80 -> "Keep the title to 80 characters."
+    form.details.trim().length > 1000 -> "Keep the details to 1000 characters."
+    else -> null
+}
+
+/** What the student is typing to ask a faculty member. */
+data class FacultyAskForm(val facultyId: Long? = null, val topic: String = "", val details: String = "", val audience: String = "CLASS")
+
+fun facultyAskProblem(form: FacultyAskForm): String? = when {
+    form.facultyId == null -> "Choose a faculty member."
+    form.topic.trim().length < 3 -> "Write the topic in at least 3 characters."
+    form.topic.trim().length > 120 -> "Keep the topic to 120 characters."
+    form.details.trim().length > 1000 -> "Keep the details to 1000 characters."
+    else -> null
+}
+
+fun facultyStatusLabel(status: String) = when (status) {
+    "OPEN" -> "Waiting for reply"; "ACCEPTED" -> "Accepted"; "DECLINED" -> "Declined"; "CANCELLED" -> "Cancelled"
+    "COMPLETED" -> "Completed"; else -> status
+}
 
 /** What the student is typing to propose a session: a date, a start time and a length. */
 data class SkillSessionForm(val teach: Boolean = false, val date: String = "", val time: String = "", val minutes: Int = 60,
@@ -120,6 +149,45 @@ fun skillStatusLabel(status: String): String = when (status) {
 }
 
 class SkillRepository(private val api: SkillApi) {
+    // ---- Posts ----
+    suspend fun wants(auth: String, mine: Boolean, q: String = "", category: String? = null) =
+        call { api.wants(auth, mine, q.trim().ifEmpty { null }, category, 0) }
+    suspend fun postWant(auth: String, form: SkillWantForm): SkillWant {
+        skillWantProblem(form)?.let { throw SkillFailure(0, "LOCAL", it) }
+        return call { api.postWant(auth, SkillWantInput(form.title.trim(), form.details.trim(), form.category, form.audience)) }
+    }
+    suspend fun want(auth: String, id: Long) = call { api.want(auth, id) }
+    suspend fun closeWant(auth: String, id: Long) = call { api.closeWant(auth, id) }
+    suspend fun comment(auth: String, id: Long, text: String) = call { api.comment(auth, id, SkillTextInput(text.trim())) }
+    suspend fun deleteComment(auth: String, id: Long, commentId: Long) { call { api.deleteComment(auth, id, commentId) } }
+    suspend fun meToo(auth: String, id: Long, join: Boolean) = call { if (join) api.meToo(auth, id) else api.notMeToo(auth, id) }
+    suspend fun help(auth: String, id: Long, message: String) = call { api.help(auth, id, SkillTextInput(message.trim())) }
+    suspend fun withdrawHelp(auth: String, id: Long) = call { api.withdrawHelp(auth, id) }
+    suspend fun acceptHelper(auth: String, id: Long, helperId: Long) = call { api.acceptHelper(auth, id, helperId) }
+    suspend fun declineHelper(auth: String, id: Long, helperId: Long) = call { api.declineHelper(auth, id, helperId) }
+
+    // ---- Groups ----
+    suspend fun groups(auth: String) = call { api.groups(auth) }
+    suspend fun group(auth: String, id: Long) = call { api.group(auth, id) }
+    suspend fun groupSession(auth: String, id: Long, form: SkillSessionForm, now: ZonedDateTime = ZonedDateTime.now()): SkillGroupDetail {
+        val (start, end) = skillSessionTimes(form, now).getOrElse { throw SkillFailure(0, "LOCAL", it.message ?: "Check the time.") }
+        return call { api.groupSession(auth, id, SkillGroupSessionInput(start.toString(), end.toString(), form.mode, form.place.trim())) }
+    }
+    suspend fun completeGroupSession(auth: String, id: Long, sessionId: Long) = call { api.completeGroupSession(auth, id, sessionId) }
+    suspend fun cancelGroupSession(auth: String, id: Long, sessionId: Long, reason: String) =
+        call { api.cancelGroupSession(auth, id, sessionId, SkillCancelInput(reason.trim())) }
+    suspend fun leaveGroup(auth: String, id: Long) { call { api.leaveGroup(auth, id) } }
+
+    // ---- Faculty ----
+    suspend fun facultyChoices(auth: String) = call { api.facultyChoices(auth) }
+    suspend fun facultyRequests(auth: String) = call { api.facultyRequests(auth) }
+    suspend fun askFaculty(auth: String, form: FacultyAskForm): FacultyLearningRequest {
+        facultyAskProblem(form)?.let { throw SkillFailure(0, "LOCAL", it) }
+        return call { api.askFaculty(auth, FacultyAskInput(form.facultyId!!, form.topic.trim(), form.details.trim(), form.audience)) }
+    }
+    suspend fun facultyRequest(auth: String, id: Long) = call { api.facultyRequest(auth, id) }
+    suspend fun facultyRequestAction(auth: String, id: Long, action: String) = call { api.facultyRequestAction(auth, id, action) }
+
     suspend fun summary(auth: String) = call { api.summary(auth) }
     suspend fun browse(auth: String, q: String, category: String?, level: String?, mode: String?, page: Int = 0) =
         call { api.browse(auth, q.trim().ifEmpty { null }, category, level, mode, page) }
@@ -152,7 +220,11 @@ class SkillRepository(private val api: SkillApi) {
     suspend fun unread(auth: String) = call { api.unread(auth) }.count
     suspend fun read(auth: String, id: Long) { call { api.read(auth, id) } }
 
-    private suspend fun <T> call(block: suspend () -> Response<T>): T {
+    private suspend fun <T> call(block: suspend () -> Response<T>): T = skillCall(block)
+}
+
+/** Runs one Skill Exchange call; failures become a [SkillFailure] with a friendly message. */
+internal suspend fun <T> skillCall(block: suspend () -> Response<T>): T {
         val response = try {
             block()
         } catch (e: CancellationException) {
@@ -169,4 +241,19 @@ class SkillRepository(private val api: SkillApi) {
         }.getOrNull()
         throw SkillFailure(response.code(), code, skillErrorMessage(response.code(), code))
     }
+
+/** The faculty side of "learn from faculty": requests sent to the signed-in faculty member. */
+class FacultyLearningRepository(private val api: FacultyLearningApi) {
+    suspend fun list(auth: String) = skillCall { api.list(auth) }
+    suspend fun one(auth: String, id: Long) = skillCall { api.one(auth, id) }
+    suspend fun accept(auth: String, id: Long, form: SkillSessionForm, now: ZonedDateTime = ZonedDateTime.now()): FacultyLearningDetail {
+        val (start, end) = skillSessionTimes(form, now).getOrElse { throw SkillFailure(0, "LOCAL", it.message ?: "Check the time.") }
+        return skillCall { api.accept(auth, id, FacultyAcceptInput(start.toString(), end.toString(), form.mode, form.place.trim())) }
+    }
+    suspend fun decline(auth: String, id: Long, reason: String) = skillCall { api.decline(auth, id, FacultyReasonInput(reason.trim())) }
+    suspend fun cancel(auth: String, id: Long, reason: String) = skillCall { api.cancel(auth, id, FacultyReasonInput(reason.trim())) }
+    suspend fun complete(auth: String, id: Long) = skillCall { api.complete(auth, id) }
+    suspend fun notices(auth: String) = skillCall { api.notices(auth) }
+    suspend fun unread(auth: String) = skillCall { api.unread(auth) }.count
+    suspend fun read(auth: String, id: Long) { skillCall { api.read(auth, id) } }
 }

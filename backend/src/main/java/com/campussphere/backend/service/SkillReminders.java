@@ -31,7 +31,7 @@ class SkillReminders {
             int added = skills.sendReminders();
             if (added > 0) log.info("Added {} Skill Exchange session reminder(s)", added);
         } catch (BadSqlGrammarException missingTables) {
-            if (!warned) log.info("Skill Exchange reminders are waiting for the V23 tables");
+            if (!warned) log.info("Skill Exchange reminders are waiting for the Skill Exchange tables (V23 and V24)");
             warned = true;
         }
     }

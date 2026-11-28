@@ -6,6 +6,9 @@ import com.campussphere.backend.security.AccountAccessPolicy.Account;
 import com.campussphere.backend.security.ApiError;
 import com.campussphere.backend.service.SkillExchange;
 import com.campussphere.backend.service.SkillExchange.*;
+import com.campussphere.backend.service.SkillFaculty;
+import com.campussphere.backend.service.SkillGroups;
+import com.campussphere.backend.service.SkillWants;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -21,9 +24,151 @@ public class SkillController {
     private static final String ID = "/{id:\\d+}";
 
     private final SkillExchange skills;
+    private final SkillWants wants;
+    private final SkillGroups groups;
+    private final SkillFaculty faculty;
 
-    public SkillController(SkillExchange skills) {
+    public SkillController(SkillExchange skills, SkillWants wants, SkillGroups groups, SkillFaculty faculty) {
         this.skills = skills;
+        this.wants = wants;
+        this.groups = groups;
+        this.faculty = faculty;
+    }
+
+    // ---- "I want to learn" posts ----
+
+    @GetMapping("/wants")
+    List<SkillWants.Want> wants(@AuthenticationPrincipal Account actor, @RequestParam(defaultValue = "false") boolean mine,
+                                @RequestParam(required = false) String q, @RequestParam(required = false) String category,
+                                @RequestParam(defaultValue = "0") int page) {
+        return wants.list(actor, mine, q, blankToNull(category), page);
+    }
+
+    @PostMapping(path = "/wants", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    SkillWants.Want post(@AuthenticationPrincipal Account actor, @RequestBody SkillWants.WantInput input) {
+        return wants.create(actor, input);
+    }
+
+    @GetMapping("/wants" + ID)
+    SkillWants.WantDetail want(@AuthenticationPrincipal Account actor, @PathVariable long id) {
+        return wants.detail(actor, id);
+    }
+
+    @PostMapping("/wants" + ID + "/close")
+    SkillWants.Want closeWant(@AuthenticationPrincipal Account actor, @PathVariable long id) {
+        return wants.close(actor, id);
+    }
+
+    @PostMapping(path = "/wants" + ID + "/comments", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    SkillWants.Comment comment(@AuthenticationPrincipal Account actor, @PathVariable long id, @RequestBody SkillWants.TextInput input) {
+        return wants.comment(actor, id, input);
+    }
+
+    @DeleteMapping("/wants" + ID + "/comments/{commentId:\\d+}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void deleteComment(@AuthenticationPrincipal Account actor, @PathVariable long id, @PathVariable long commentId) {
+        wants.deleteComment(actor, id, commentId);
+    }
+
+    @PostMapping("/wants" + ID + "/me-too")
+    SkillWants.Want meToo(@AuthenticationPrincipal Account actor, @PathVariable long id) {
+        return wants.meToo(actor, id, true);
+    }
+
+    @DeleteMapping("/wants" + ID + "/me-too")
+    SkillWants.Want notMeToo(@AuthenticationPrincipal Account actor, @PathVariable long id) {
+        return wants.meToo(actor, id, false);
+    }
+
+    @PostMapping(path = "/wants" + ID + "/help", consumes = MediaType.APPLICATION_JSON_VALUE)
+    SkillWants.Want help(@AuthenticationPrincipal Account actor, @PathVariable long id, @RequestBody SkillWants.TextInput input) {
+        return wants.help(actor, id, input);
+    }
+
+    @DeleteMapping("/wants" + ID + "/help")
+    SkillWants.Want withdraw(@AuthenticationPrincipal Account actor, @PathVariable long id) {
+        return wants.withdraw(actor, id);
+    }
+
+    @PostMapping("/wants" + ID + "/helpers/{helperId:\\d+}/accept")
+    Request acceptHelper(@AuthenticationPrincipal Account actor, @PathVariable long id, @PathVariable long helperId) {
+        return wants.accept(actor, id, helperId);
+    }
+
+    @PostMapping("/wants" + ID + "/helpers/{helperId:\\d+}/decline")
+    SkillWants.WantDetail declineHelper(@AuthenticationPrincipal Account actor, @PathVariable long id, @PathVariable long helperId) {
+        return wants.decline(actor, id, helperId);
+    }
+
+    // ---- Learning groups ----
+
+    @GetMapping("/groups")
+    List<SkillGroups.Group> groups(@AuthenticationPrincipal Account actor) {
+        return groups.groups(actor);
+    }
+
+    @GetMapping("/groups" + ID)
+    SkillGroups.GroupDetail group(@AuthenticationPrincipal Account actor, @PathVariable long id) {
+        return groups.detail(actor, id);
+    }
+
+    @PostMapping(path = "/groups" + ID + "/sessions", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    SkillGroups.GroupDetail groupSession(@AuthenticationPrincipal Account actor, @PathVariable long id,
+                                         @RequestBody SkillGroups.GroupSessionInput input) {
+        return groups.schedule(actor, id, input);
+    }
+
+    @PostMapping("/groups" + ID + "/sessions/{sessionId:\\d+}/complete")
+    SkillGroups.GroupDetail completeGroupSession(@AuthenticationPrincipal Account actor, @PathVariable long id, @PathVariable long sessionId) {
+        return groups.act(actor, id, sessionId, "complete", null);
+    }
+
+    @PostMapping(path = "/groups" + ID + "/sessions/{sessionId:\\d+}/cancel", consumes = MediaType.APPLICATION_JSON_VALUE)
+    SkillGroups.GroupDetail cancelGroupSession(@AuthenticationPrincipal Account actor, @PathVariable long id,
+                                               @PathVariable long sessionId, @RequestBody CancelInput input) {
+        return groups.act(actor, id, sessionId, "cancel", input.reason());
+    }
+
+    @PostMapping("/groups" + ID + "/leave")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void leaveGroup(@AuthenticationPrincipal Account actor, @PathVariable long id) {
+        groups.leave(actor, id);
+    }
+
+    // ---- Learning from faculty ----
+
+    @GetMapping("/faculty")
+    List<SkillFaculty.FacultyChoice> facultyChoices(@AuthenticationPrincipal Account actor) {
+        return faculty.faculty(actor);
+    }
+
+    @GetMapping("/faculty-requests")
+    List<SkillFaculty.FacultyRequest> facultyRequests(@AuthenticationPrincipal Account actor) {
+        return faculty.requests(actor);
+    }
+
+    @PostMapping(path = "/faculty-requests", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    SkillFaculty.FacultyRequest askFaculty(@AuthenticationPrincipal Account actor, @RequestBody SkillFaculty.AskInput input) {
+        return faculty.ask(actor, input);
+    }
+
+    @GetMapping("/faculty-requests" + ID)
+    SkillFaculty.FacultyRequestDetail facultyRequest(@AuthenticationPrincipal Account actor, @PathVariable long id) {
+        return faculty.request(actor, id);
+    }
+
+    @PostMapping("/faculty-requests" + ID + "/{action:join|leave|cancel}")
+    SkillFaculty.FacultyRequest facultyRequestAction(@AuthenticationPrincipal Account actor, @PathVariable long id,
+                                                     @PathVariable String action) {
+        return switch (action) {
+            case "join" -> faculty.join(actor, id);
+            case "leave" -> faculty.leave(actor, id);
+            default -> faculty.cancel(actor, id);
+        };
     }
 
     public record Count(long count) {}

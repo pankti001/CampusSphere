@@ -36,13 +36,19 @@ public class SkillExchange {
     // ---- Shapes ----
 
     public record Slot(int day, LocalTime start, LocalTime end) {}
+    /** audience is "CLASS" (only the student's own class) or "COLLEGE" (every student of the college); null = COLLEGE. */
     public record OfferInput(String name, String category, String description, String level, String teachingMethod,
-                             String mode, List<Slot> slots) {
+                             String mode, List<Slot> slots, String audience) {
+        public OfferInput(String name, String category, String description, String level, String teachingMethod,
+                          String mode, List<Slot> slots) {
+            this(name, category, description, level, teachingMethod, mode, slots, null);
+        }
         @JsonAnySetter public void rejectUnknownField(String f, Object v) { throw new IllegalArgumentException("Unsupported field"); }
     }
     public record Offer(long id, long providerId, String provider, String classLabel, String name, String category,
                         String description, String level, String teachingMethod, String mode, String status,
-                        Double rating, long reviews, boolean mine, String myRequest, List<Slot> slots) {}
+                        Double rating, long reviews, boolean mine, String myRequest, List<Slot> slots, String audience) {}
+    static final Set<String> AUDIENCES = Set.of("CLASS", "COLLEGE");
     public record Filter(String q, String category, String level, String mode, int page) {
         public Filter {
             q = q == null || q.isBlank() ? null : q.strip();
@@ -54,10 +60,11 @@ public class SkillExchange {
     public record RequestInput(Long offerId, Long exchangeOfferId, String message) {
         @JsonAnySetter public void rejectUnknownField(String f, Object v) { throw new IllegalArgumentException("Unsupported field"); }
     }
-    public record Request(long id, long offerId, String offerName, long providerId, String provider, long learnerId,
+    /** A request comes from an offered skill (offerId) or from an accepted "I want to learn" post (wantId). */
+    public record Request(long id, Long offerId, String offerName, long providerId, String provider, long learnerId,
                           String learner, Long exchangeOfferId, String exchangeOfferName, String message, String status,
                           OffsetDateTime createdAt, OffsetDateTime decidedAt, boolean incoming, long partnerId,
-                          String partner, boolean exchange, long completedSessions) {}
+                          String partner, boolean exchange, long completedSessions, Long wantId, Long groupId) {}
     public record SessionInput(Boolean teach, OffsetDateTime startsAt, OffsetDateTime endsAt, String mode, String place) {
         @JsonAnySetter public void rejectUnknownField(String f, Object v) { throw new IllegalArgumentException("Unsupported field"); }
     }
@@ -73,33 +80,74 @@ public class SkillExchange {
     }
     public record Review(long id, int rating, String comment, String reviewer, String skill, OffsetDateTime createdAt) {}
     public record Notice(long id, String kind, String title, String body, Long requestId, Long sessionId,
-                         OffsetDateTime startsAt, OffsetDateTime createdAt, OffsetDateTime readAt) {}
+                         OffsetDateTime startsAt, OffsetDateTime createdAt, OffsetDateTime readAt, Long wantId, Long groupId,
+                         Long groupSessionId, Long facultyRequestId) {}
     public record Summary(long myOffers, long incomingRequests, long outgoingRequests, long upcomingSessions,
-                          Session nextSession, long unreadNotices) {}
+                          Session nextSession, long unreadNotices, long openWants, long groups, long facultyRequests) {}
     public enum Box { INCOMING, OUTGOING, ALL }
     public enum When { UPCOMING, HISTORY }
 
     /** The stored request, for rules. */
-    record RequestRow(long id, long providerId, long learnerId, long offerId, Long exchangeOfferId, String status) {}
+    record RequestRow(long id, long providerId, long learnerId, Long offerId, Long exchangeOfferId, String status, Long wantId) {
+        RequestRow(long id, long providerId, long learnerId, Long offerId, Long exchangeOfferId, String status) {
+            this(id, providerId, learnerId, offerId, exchangeOfferId, status, null);
+        }
+    }
     /** The stored session, for rules. */
     record SessionRow(long id, long teacherId, long pupilId, long proposedBy, OffsetDateTime startsAt,
                       OffsetDateTime endsAt, String status) {}
 
     private final JdbcTemplate db;
     private final Clock clock;
+    private final SkillNotices notices;
+    private final SkillGroupMaker groups;
 
     @Autowired
-    public SkillExchange(JdbcTemplate db) {
-        this(db, Clock.systemUTC());
+    public SkillExchange(JdbcTemplate db, SkillNotices notices, SkillGroupMaker groups) {
+        this(db, Clock.systemUTC(), notices, groups);
     }
 
+    /** For tests: no live chat updates. */
     SkillExchange(JdbcTemplate db, Clock clock) {
+        this(db, clock, new SkillNotices(db), new SkillGroupMaker(db, null, new SkillNotices(db)));
+    }
+
+    SkillExchange(JdbcTemplate db, Clock clock, SkillNotices notices, SkillGroupMaker groups) {
         this.db = db;
         this.clock = clock;
+        this.notices = notices;
+        this.groups = groups;
     }
 
     OffsetDateTime now() {
         return OffsetDateTime.now(clock);
+    }
+
+    /** The student's current class (division), or null when not enrolled. Never taken from the app. */
+    Long division(long college, long student) {
+        return db.queryForList("""
+                SELECT division_id FROM public.student_enrollments WHERE college_id = ? AND student_id = ? AND ended_at IS NULL
+                """, Long.class, college, student).stream().findFirst().orElse(null);
+    }
+
+    /** The class to store for an audience: the student's own class for CLASS (refused when not in a class), else null. */
+    Long audienceClass(long college, long student, String audience) {
+        if (!"CLASS".equals(audience)) return null;
+        Long division = division(college, student);
+        if (division == null) throw ApiError.SKILL_NO_CLASS.exception();
+        return division;
+    }
+
+    static String cleanAudience(String audience) {
+        String value = audience == null ? "COLLEGE" : audience;
+        if (!AUDIENCES.contains(value)) throw ApiError.SKILL_INVALID.exception();
+        return value;
+    }
+
+    static String text(String value, int max, boolean required, ApiError error) {
+        String clean = value == null ? "" : value.strip();
+        if (clean.length() > max || (required && clean.isEmpty())) throw error.exception();
+        return clean;
     }
 
     /** The signed-in student's college, after checking they have a student profile there. */
@@ -135,7 +183,7 @@ public class SkillExchange {
         }
         clean.sort(Comparator.comparingInt(Slot::day).thenComparing(Slot::start));
         return new OfferInput(name, in.category(), text(in.description(), 1000, false), in.level(),
-                text(in.teachingMethod(), 300, false), in.mode(), List.copyOf(clean));
+                text(in.teachingMethod(), 300, false), in.mode(), List.copyOf(clean), cleanAudience(in.audience()));
     }
 
     static SessionInput cleanSession(SessionInput in, OffsetDateTime now) {
@@ -163,7 +211,7 @@ public class SkillExchange {
     }
 
     /** Which offer a session teaches: the provider teaches the requested offer; the learner only their exchange offer. */
-    static long taughtOffer(RequestRow r, long teacher) {
+    static Long taughtOffer(RequestRow r, long teacher) {
         if (teacher == r.providerId()) return r.offerId();
         if (teacher == r.learnerId() && r.exchangeOfferId() != null) return r.exchangeOfferId();
         throw ApiError.SKILL_INVALID.exception();
@@ -182,7 +230,7 @@ public class SkillExchange {
                     JOIN public.academic_programs p ON p.college_id = e.college_id AND p.id = e.program_id
                     JOIN public.academic_divisions d ON d.college_id = e.college_id AND d.id = e.division_id
                     WHERE e.college_id = o.college_id AND e.student_id = o.student_id AND e.ended_at IS NULL LIMIT 1) class_label,
-                   o.name, o.category, o.description, o.level, o.teaching_method, o.mode, o.status,
+                   o.name, o.category, o.description, o.level, o.teaching_method, o.mode, o.status, o.audience,
                    (SELECT avg(r.rating) FROM public.skill_reviews r
                     JOIN public.skill_sessions s ON s.college_id = r.college_id AND s.id = r.session_id
                     WHERE s.college_id = o.college_id AND s.offer_id = o.id AND r.reviewee_id = s.teacher_id) rating,
@@ -194,11 +242,13 @@ public class SkillExchange {
             FROM public.skill_offers o JOIN public.users u ON u.id = o.student_id
             WHERE o.college_id = ?""";
 
-    /** Active offers of other students in the signed-in student's college. */
+    /** Active offers of other students in the signed-in student's college: college-wide ones and those of their own class. */
     public List<Offer> browse(Account actor, Filter f) {
         long college = college(actor);
-        var sql = new StringBuilder(OFFER_SELECT).append(" AND o.status = 'ACTIVE' AND u.is_active IS TRUE AND o.student_id <> ?");
-        var args = new ArrayList<Object>(List.of(actor.id(), college, actor.id()));
+        Long division = division(college, actor.id());
+        var sql = new StringBuilder(OFFER_SELECT).append(" AND o.status = 'ACTIVE' AND u.is_active IS TRUE AND o.student_id <> ?")
+                .append(" AND (o.audience = 'COLLEGE' OR o.division_id = ?)");
+        var args = new ArrayList<Object>(Arrays.asList(actor.id(), college, actor.id(), division));
         if (f.q() != null) {
             sql.append(" AND (strpos(lower(o.name), lower(?)) > 0 OR strpos(lower(o.description), lower(?)) > 0)");
             args.add(f.q()); args.add(f.q());
@@ -217,11 +267,12 @@ public class SkillExchange {
                 (r, i) -> offer(r, actor.id(), List.of()), actor.id(), college, actor.id()));
     }
 
-    /** One offer: any active offer of the college, or the student's own in any state. */
+    /** One offer: an active offer the student may see (college-wide, or of their class), or their own in any state. */
     public Offer offer(Account actor, long id) {
         long college = college(actor);
-        var found = db.query(OFFER_SELECT + " AND o.id = ? AND (o.status = 'ACTIVE' OR o.student_id = ?)",
-                (r, i) -> offer(r, actor.id(), List.of()), actor.id(), college, id, actor.id());
+        Long division = division(college, actor.id());
+        var found = db.query(OFFER_SELECT + " AND o.id = ? AND (o.student_id = ? OR (o.status = 'ACTIVE' AND (o.audience = 'COLLEGE' OR o.division_id = ?)))",
+                (r, i) -> offer(r, actor.id(), List.of()), actor.id(), college, id, actor.id(), division);
         if (found.isEmpty()) throw ApiError.SKILL_NOT_FOUND.exception();
         return withSlots(college, found).get(0);
     }
@@ -233,13 +284,14 @@ public class SkillExchange {
                 SELECT count(*) FROM public.skill_offers WHERE college_id = ? AND student_id = ? AND status <> 'ARCHIVED'
                 """, Long.class, college, actor.id());
         if (live != null && live >= MAX_OFFERS) throw ApiError.SKILL_STATE_CONFLICT.exception();
+        Long division = audienceClass(college, actor.id(), in.audience());
         Long id;
         try {
             id = db.queryForObject("""
                     INSERT INTO public.skill_offers (college_id, student_id, name, category, description, level,
-                        teaching_method, mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+                        teaching_method, mode, audience, division_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
                     """, Long.class, college, actor.id(), in.name(), in.category(), in.description(), in.level(),
-                    in.teachingMethod(), in.mode());
+                    in.teachingMethod(), in.mode(), in.audience(), division);
         } catch (DuplicateKeyException duplicate) {
             throw ApiError.SKILL_DUPLICATE.exception();
         }
@@ -251,12 +303,14 @@ public class SkillExchange {
         long college = college(actor);
         OfferInput in = cleanOffer(input);
         ownOffer(college, actor.id(), id);
+        Long division = audienceClass(college, actor.id(), in.audience());
         try {
             db.update("""
                     UPDATE public.skill_offers SET name = ?, category = ?, description = ?, level = ?, teaching_method = ?,
-                        mode = ?, updated_at = statement_timestamp() WHERE college_id = ? AND id = ? AND student_id = ?
+                        mode = ?, audience = ?, division_id = ?, updated_at = statement_timestamp()
+                    WHERE college_id = ? AND id = ? AND student_id = ?
                     """, in.name(), in.category(), in.description(), in.level(), in.teachingMethod(), in.mode(),
-                    college, id, actor.id());
+                    in.audience(), division, college, id, actor.id());
         } catch (DuplicateKeyException duplicate) {
             throw ApiError.SKILL_DUPLICATE.exception();
         }
@@ -310,7 +364,7 @@ public class SkillExchange {
                         r.getObject(3, LocalTime.class), r.getObject(4, LocalTime.class))), args.toArray());
         return offers.stream().map(o -> new Offer(o.id(), o.providerId(), o.provider(), o.classLabel(), o.name(), o.category(),
                 o.description(), o.level(), o.teachingMethod(), o.mode(), o.status(), o.rating(), o.reviews(), o.mine(),
-                o.myRequest(), byOffer.getOrDefault(o.id(), List.of()))).toList();
+                o.myRequest(), byOffer.getOrDefault(o.id(), List.of()), o.audience())).toList();
     }
 
     private static Offer offer(ResultSet r, long me, List<Slot> slots) throws SQLException {
@@ -319,18 +373,24 @@ public class SkillExchange {
                 r.getString("name"), r.getString("category"), r.getString("description"), r.getString("level"),
                 r.getString("teaching_method"), r.getString("mode"), r.getString("status"),
                 rating == null ? null : Math.round(rating.doubleValue() * 10) / 10.0, r.getLong("reviews"),
-                r.getLong("student_id") == me, r.getString("my_request"), slots);
+                r.getLong("student_id") == me, r.getString("my_request"), slots, r.getString("audience"));
     }
 
     // ---- Requests ----
 
     private static final String REQUEST_SELECT = """
-            SELECT q.id, q.offer_id, o.name offer_name, q.provider_id, pu.full_name provider, q.learner_id, lu.full_name learner,
-                   q.exchange_offer_id, xo.name exchange_name, q.message, q.status, q.created_at, q.decided_at,
+            SELECT q.id, q.offer_id, coalesce(o.name, w.title) offer_name, q.provider_id, pu.full_name provider, q.learner_id,
+                   lu.full_name learner, q.exchange_offer_id, xo.name exchange_name, q.message, q.status, q.created_at,
+                   q.decided_at, q.want_id,
                    (SELECT count(*) FROM public.skill_sessions s WHERE s.college_id = q.college_id AND s.request_id = q.id
-                      AND s.status = 'COMPLETED') completed
+                      AND s.status = 'COMPLETED') completed,
+                   (SELECT m.group_id FROM public.skill_group_members m JOIN public.skill_groups g
+                      ON g.college_id = m.college_id AND g.id = m.group_id
+                    WHERE m.college_id = q.college_id AND m.request_id = q.id AND m.left_at IS NULL AND g.status = 'ACTIVE'
+                    LIMIT 1) group_id
             FROM public.skill_requests q
-            JOIN public.skill_offers o ON o.college_id = q.college_id AND o.id = q.offer_id
+            LEFT JOIN public.skill_offers o ON o.college_id = q.college_id AND o.id = q.offer_id
+            LEFT JOIN public.skill_wants w ON w.college_id = q.college_id AND w.id = q.want_id
             LEFT JOIN public.skill_offers xo ON xo.college_id = q.college_id AND xo.id = q.exchange_offer_id
             JOIN public.users pu ON pu.id = q.provider_id
             JOIN public.users lu ON lu.id = q.learner_id
@@ -340,12 +400,13 @@ public class SkillExchange {
         long provider = r.getLong("provider_id");
         boolean incoming = provider == me;
         Number exchange = (Number) r.getObject("exchange_offer_id");
-        return new Request(r.getLong("id"), r.getLong("offer_id"), r.getString("offer_name"), provider, r.getString("provider"),
-                r.getLong("learner_id"), r.getString("learner"), exchange == null ? null : exchange.longValue(),
+        return new Request(r.getLong("id"), (Long) r.getObject("offer_id", Long.class), r.getString("offer_name"), provider,
+                r.getString("provider"), r.getLong("learner_id"), r.getString("learner"), exchange == null ? null : exchange.longValue(),
                 r.getString("exchange_name"), r.getString("message"), r.getString("status"),
                 r.getObject("created_at", OffsetDateTime.class), r.getObject("decided_at", OffsetDateTime.class), incoming,
                 incoming ? r.getLong("learner_id") : provider, incoming ? r.getString("learner") : r.getString("provider"),
-                exchange != null, r.getLong("completed"));
+                exchange != null, r.getLong("completed"), (Long) r.getObject("want_id", Long.class),
+                (Long) r.getObject("group_id", Long.class));
     }
 
     public List<Request> requests(Account actor, Box box, String status, int page) {
@@ -373,8 +434,10 @@ public class SkillExchange {
         long college = college(actor);
         if (input == null || input.offerId() == null) throw ApiError.SKILL_INVALID.exception();
         String message = text(input.message(), 500, false);
-        long provider = db.query("SELECT student_id FROM public.skill_offers WHERE college_id = ? AND id = ? AND status = 'ACTIVE'",
-                (r, i) -> r.getLong(1), college, input.offerId()).stream().findFirst()
+        Long division = division(college, actor.id());
+        long provider = db.query("SELECT student_id FROM public.skill_offers WHERE college_id = ? AND id = ? AND status = 'ACTIVE'"
+                        + " AND (audience = 'COLLEGE' OR division_id = ?)",
+                (r, i) -> r.getLong(1), college, input.offerId(), division).stream().findFirst()
                 .orElseThrow(ApiError.SKILL_NOT_FOUND::exception);
         if (provider == actor.id()) throw ApiError.SKILL_INVALID.exception();
         if (input.exchangeOfferId() != null && !Boolean.TRUE.equals(db.queryForObject("""
@@ -409,6 +472,9 @@ public class SkillExchange {
                 UPDATE public.skill_sessions SET status = 'CANCELLED', cancelled_by = ?, cancel_reason = 'The request was cancelled'
                 WHERE college_id = ? AND request_id = ? AND status IN ('REQUESTED', 'SCHEDULED')
                 """, actor.id(), college, id);
+        // Learning together: an accepted learner joins (or forms) the group for that skill; a cancelled one leaves it.
+        if (next.equals("ACCEPTED")) groups.afterAccepted(college, id);
+        if (next.equals("CANCELLED")) groups.afterCancelled(college, id);
         Request updated = request(actor, id);
         long other = row.providerId() == actor.id() ? row.learnerId() : row.providerId();
         String me = row.providerId() == actor.id() ? updated.provider() : updated.learner();
@@ -425,24 +491,26 @@ public class SkillExchange {
 
     private RequestRow requestRow(long college, long me, long id, boolean lock) {
         return db.query("""
-                SELECT id, provider_id, learner_id, offer_id, exchange_offer_id, status FROM public.skill_requests
+                SELECT id, provider_id, learner_id, offer_id, exchange_offer_id, status, want_id FROM public.skill_requests
                 WHERE college_id = ? AND id = ? AND (provider_id = ? OR learner_id = ?)""" + (lock ? " FOR UPDATE" : " FOR SHARE"),
-                (r, i) -> {
-                    Number x = (Number) r.getObject("exchange_offer_id");
-                    return new RequestRow(r.getLong("id"), r.getLong("provider_id"), r.getLong("learner_id"),
-                            r.getLong("offer_id"), x == null ? null : x.longValue(), r.getString("status"));
-                }, college, id, me, me).stream().findFirst().orElseThrow(ApiError.SKILL_NOT_FOUND::exception);
+                (r, i) -> new RequestRow(r.getLong("id"), r.getLong("provider_id"), r.getLong("learner_id"),
+                        (Long) r.getObject("offer_id", Long.class), (Long) r.getObject("exchange_offer_id", Long.class),
+                        r.getString("status"), (Long) r.getObject("want_id", Long.class)),
+                college, id, me, me).stream().findFirst().orElseThrow(ApiError.SKILL_NOT_FOUND::exception);
     }
 
     // ---- Sessions ----
 
+    // A session from a post has no offer; its name is the post's title.
     private static final String SESSION_SELECT = """
-            SELECT s.id, s.request_id, o.name skill, s.teacher_id, tu.full_name teacher, s.pupil_id, pu.full_name pupil,
-                   s.starts_at, s.ends_at, s.mode, s.place, s.status, s.proposed_by, s.cancel_reason,
+            SELECT s.id, s.request_id, coalesce(o.name, w.title) skill, s.teacher_id, tu.full_name teacher, s.pupil_id,
+                   pu.full_name pupil, s.starts_at, s.ends_at, s.mode, s.place, s.status, s.proposed_by, s.cancel_reason,
                    (SELECT r.rating FROM public.skill_reviews r WHERE r.college_id = s.college_id AND r.session_id = s.id
                       AND r.reviewer_id = ?) my_rating
             FROM public.skill_sessions s
-            JOIN public.skill_offers o ON o.college_id = s.college_id AND o.id = s.offer_id
+            LEFT JOIN public.skill_offers o ON o.college_id = s.college_id AND o.id = s.offer_id
+            JOIN public.skill_requests sq ON sq.college_id = s.college_id AND sq.id = s.request_id
+            LEFT JOIN public.skill_wants w ON w.college_id = sq.college_id AND w.id = sq.want_id
             JOIN public.users tu ON tu.id = s.teacher_id
             JOIN public.users pu ON pu.id = s.pupil_id
             WHERE s.college_id = ? AND (s.teacher_id = ? OR s.pupil_id = ?)""";
@@ -484,7 +552,7 @@ public class SkillExchange {
         long other = q.providerId() == actor.id() ? q.learnerId() : q.providerId();
         long teacher = in.teach() ? actor.id() : other;
         long pupil = teacher == actor.id() ? other : actor.id();
-        long offer = taughtOffer(q, teacher);
+        Long offer = taughtOffer(q, teacher);
         Long id = db.queryForObject("""
                 INSERT INTO public.skill_sessions (college_id, request_id, provider_id, learner_id, offer_id, teacher_id,
                     pupil_id, starts_at, ends_at, mode, place, proposed_by)
@@ -578,10 +646,12 @@ public class SkillExchange {
                 SELECT EXISTS (SELECT 1 FROM public.student_profiles WHERE college_id = ? AND student_id = ?)
                 """, Boolean.class, college, student))) throw ApiError.SKILL_NOT_FOUND.exception();
         return db.query("""
-                SELECT r.id, r.rating, r.comment, split_part(u.full_name, ' ', 1), o.name, r.created_at
+                SELECT r.id, r.rating, r.comment, split_part(u.full_name, ' ', 1), coalesce(o.name, w.title), r.created_at
                 FROM public.skill_reviews r JOIN public.users u ON u.id = r.reviewer_id
                 JOIN public.skill_sessions s ON s.college_id = r.college_id AND s.id = r.session_id
-                JOIN public.skill_offers o ON o.college_id = s.college_id AND o.id = s.offer_id
+                LEFT JOIN public.skill_offers o ON o.college_id = s.college_id AND o.id = s.offer_id
+                JOIN public.skill_requests sq ON sq.college_id = s.college_id AND sq.id = s.request_id
+                LEFT JOIN public.skill_wants w ON w.college_id = sq.college_id AND w.id = sq.want_id
                 WHERE r.college_id = ? AND r.reviewee_id = ? ORDER BY r.id DESC LIMIT 50
                 """, (r, i) -> new Review(r.getLong(1), r.getInt(2), r.getString(3), r.getString(4), r.getString(5),
                 r.getObject(6, OffsetDateTime.class)), college, student);
@@ -590,23 +660,26 @@ public class SkillExchange {
     // ---- Notifications ----
 
     private void notice(long college, long student, String kind, String key, String title, String body, Long request, Long session) {
-        db.update("""
-                INSERT INTO public.skill_notifications (college_id, student_id, kind, event_key, title, body, request_id, session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT ON CONSTRAINT uq_skill_notification_event DO NOTHING
-                """, college, student, kind, key, title, body.length() > 600 ? body.substring(0, 600) : body, request, session);
+        notices.student(college, student, kind, key, title, body, SkillNotices.Links.request(request, session));
     }
 
     public List<Notice> notices(Account actor, int page) {
         long college = college(actor);
         if (page < 0 || page > 1000) throw ApiError.SKILL_INVALID.exception();
         return db.query("""
-                SELECT n.id, n.kind, n.title, n.body, n.request_id, n.session_id, s.starts_at, n.created_at, n.read_at
+                SELECT n.id, n.kind, n.title, n.body, n.request_id, n.session_id,
+                       coalesce(s.starts_at, gs.starts_at, fr.starts_at) starts_at, n.created_at, n.read_at,
+                       n.want_id, n.group_id, n.group_session_id, n.faculty_request_id
                 FROM public.skill_notifications n
                 LEFT JOIN public.skill_sessions s ON s.college_id = n.college_id AND s.id = n.session_id
+                LEFT JOIN public.skill_group_sessions gs ON gs.college_id = n.college_id AND gs.id = n.group_session_id
+                LEFT JOIN public.skill_faculty_requests fr ON fr.college_id = n.college_id AND fr.id = n.faculty_request_id
                 WHERE n.college_id = ? AND n.student_id = ? ORDER BY n.id DESC LIMIT ? OFFSET ?
                 """, (r, i) -> new Notice(r.getLong(1), r.getString(2), r.getString(3), r.getString(4),
                 (Long) r.getObject(5, Long.class), (Long) r.getObject(6, Long.class), r.getObject(7, OffsetDateTime.class),
-                r.getObject(8, OffsetDateTime.class), r.getObject(9, OffsetDateTime.class)), college, actor.id(), PAGE, page * PAGE);
+                r.getObject(8, OffsetDateTime.class), r.getObject(9, OffsetDateTime.class), (Long) r.getObject(10, Long.class),
+                (Long) r.getObject(11, Long.class), (Long) r.getObject(12, Long.class), (Long) r.getObject(13, Long.class)),
+                college, actor.id(), PAGE, page * PAGE);
     }
 
     public long unread(Account actor) {
@@ -628,41 +701,83 @@ public class SkillExchange {
     }
 
     /**
-     * Adds a reminder 24 hours and 1 hour before each scheduled session, to its two students only. Event keys make
-     * every reminder unique, so running this often never duplicates one. Returns how many were added.
+     * Adds a reminder a day and an hour before every scheduled session: one-to-one sessions (both students), group
+     * sessions (the teaching student and current learners) and accepted faculty sessions (the students who joined, and
+     * the faculty member). Each reminder stays in the session's own college. Event keys make every reminder unique, so
+     * running this often never duplicates one. Returns how many were added.
      */
     public int sendReminders() {
         int added = 0;
         // The day-before reminder is skipped for a session already within the hour; that one gets the hour reminder.
-        for (Object[] window : List.of(new Object[]{"reminder24:", "Session within a day", "1 hour", "24 hours"},
-                new Object[]{"reminder1:", "Session within the hour", "0 minutes", "1 hour"})) {
+        for (String[] w : List.of(new String[]{"24:", "Session within a day", "1 hour", "24 hours"},
+                new String[]{"1:", "Session within the hour", "0 minutes", "1 hour"})) {
             added += db.update("""
                     INSERT INTO public.skill_notifications (college_id, student_id, kind, event_key, title, body, session_id)
-                    SELECT s.college_id, p.student_id, 'SESSION_REMINDER', CAST(? AS text) || s.id, ?, o.name, s.id
+                    SELECT s.college_id, p.student_id, 'SESSION_REMINDER', CAST(? AS text) || s.id, ?, coalesce(o.name, wt.title), s.id
                     FROM public.skill_sessions s
-                    JOIN public.skill_offers o ON o.college_id = s.college_id AND o.id = s.offer_id
+                    LEFT JOIN public.skill_offers o ON o.college_id = s.college_id AND o.id = s.offer_id
+                    JOIN public.skill_requests sq ON sq.college_id = s.college_id AND sq.id = s.request_id
+                    LEFT JOIN public.skill_wants wt ON wt.college_id = sq.college_id AND wt.id = sq.want_id
                     CROSS JOIN LATERAL (VALUES (s.teacher_id), (s.pupil_id)) p(student_id)
                     WHERE s.status = 'SCHEDULED' AND s.starts_at > statement_timestamp() + CAST(? AS interval)
                       AND s.starts_at <= statement_timestamp() + CAST(? AS interval)
                     ON CONFLICT ON CONSTRAINT uq_skill_notification_event DO NOTHING
-                    """, window);
+                    """, "reminder" + w[0], w[1], w[2], w[3]);
+            added += db.update("""
+                    INSERT INTO public.skill_notifications (college_id, student_id, kind, event_key, title, body, group_id, group_session_id)
+                    SELECT gs.college_id, p.student_id, 'SESSION_REMINDER', CAST(? AS text) || gs.id, ?, g.name, g.id, gs.id
+                    FROM public.skill_group_sessions gs
+                    JOIN public.skill_groups g ON g.college_id = gs.college_id AND g.id = gs.group_id AND g.status = 'ACTIVE'
+                    CROSS JOIN LATERAL (SELECT g.teacher_id UNION SELECT m.learner_id FROM public.skill_group_members m
+                        WHERE m.college_id = g.college_id AND m.group_id = g.id AND m.left_at IS NULL) p(student_id)
+                    WHERE gs.status = 'SCHEDULED' AND gs.starts_at > statement_timestamp() + CAST(? AS interval)
+                      AND gs.starts_at <= statement_timestamp() + CAST(? AS interval)
+                    ON CONFLICT ON CONSTRAINT uq_skill_notification_event DO NOTHING
+                    """, "group-reminder" + w[0], w[1], w[2], w[3]);
+            added += db.update("""
+                    INSERT INTO public.skill_notifications (college_id, student_id, kind, event_key, title, body, faculty_request_id)
+                    SELECT fr.college_id, m.student_id, 'SESSION_REMINDER', CAST(? AS text) || fr.id, ?, fr.topic, fr.id
+                    FROM public.skill_faculty_requests fr
+                    JOIN public.skill_faculty_request_members m ON m.college_id = fr.college_id AND m.request_id = fr.id
+                    WHERE fr.status = 'ACCEPTED' AND fr.starts_at > statement_timestamp() + CAST(? AS interval)
+                      AND fr.starts_at <= statement_timestamp() + CAST(? AS interval)
+                    ON CONFLICT ON CONSTRAINT uq_skill_notification_event DO NOTHING
+                    """, "faculty-reminder" + w[0], w[1], w[2], w[3]);
+            added += db.update("""
+                    INSERT INTO public.skill_faculty_notices (college_id, faculty_id, kind, event_key, title, body, request_id)
+                    SELECT fr.college_id, fr.faculty_id, 'REMINDER', CAST(? AS text) || fr.id, ?, fr.topic, fr.id
+                    FROM public.skill_faculty_requests fr
+                    WHERE fr.status = 'ACCEPTED' AND fr.starts_at > statement_timestamp() + CAST(? AS interval)
+                      AND fr.starts_at <= statement_timestamp() + CAST(? AS interval)
+                    ON CONFLICT ON CONSTRAINT uq_skill_faculty_notice_event DO NOTHING
+                    """, "reminder" + w[0], w[1], w[2], w[3]);
         }
         return added;
     }
 
     public Summary summary(Account actor) {
         long college = college(actor);
+        Long division = division(college, actor.id());
         long[] c = db.queryForObject("""
                 SELECT (SELECT count(*) FROM public.skill_offers WHERE college_id = ? AND student_id = ? AND status <> 'ARCHIVED'),
                        (SELECT count(*) FROM public.skill_requests WHERE college_id = ? AND provider_id = ? AND status = 'REQUESTED'),
                        (SELECT count(*) FROM public.skill_requests WHERE college_id = ? AND learner_id = ? AND status = 'REQUESTED'),
                        (SELECT count(*) FROM public.skill_sessions WHERE college_id = ? AND (teacher_id = ? OR pupil_id = ?)
                           AND status IN ('REQUESTED', 'SCHEDULED') AND ends_at >= ?),
-                       (SELECT count(*) FROM public.skill_notifications WHERE college_id = ? AND student_id = ? AND read_at IS NULL)
-                """, (r, i) -> new long[]{r.getLong(1), r.getLong(2), r.getLong(3), r.getLong(4), r.getLong(5)},
+                       (SELECT count(*) FROM public.skill_notifications WHERE college_id = ? AND student_id = ? AND read_at IS NULL),
+                       (SELECT count(*) FROM public.skill_wants WHERE college_id = ? AND status = 'OPEN' AND student_id <> ?
+                          AND (audience = 'COLLEGE' OR division_id = ?)),
+                       (SELECT count(*) FROM public.skill_groups g WHERE g.college_id = ? AND g.status = 'ACTIVE' AND (g.teacher_id = ?
+                          OR EXISTS (SELECT 1 FROM public.skill_group_members m WHERE m.college_id = g.college_id
+                             AND m.group_id = g.id AND m.learner_id = ? AND m.left_at IS NULL))),
+                       (SELECT count(*) FROM public.skill_faculty_requests fr WHERE fr.college_id = ? AND fr.status IN ('OPEN', 'ACCEPTED')
+                          AND EXISTS (SELECT 1 FROM public.skill_faculty_request_members m WHERE m.college_id = fr.college_id
+                             AND m.request_id = fr.id AND m.student_id = ?))
+                """, (r, i) -> new long[]{r.getLong(1), r.getLong(2), r.getLong(3), r.getLong(4), r.getLong(5), r.getLong(6),
+                        r.getLong(7), r.getLong(8)},
                 college, actor.id(), college, actor.id(), college, actor.id(), college, actor.id(), actor.id(), now(),
-                college, actor.id());
+                college, actor.id(), college, actor.id(), division, college, actor.id(), actor.id(), college, actor.id());
         List<Session> upcoming = sessions(actor, When.UPCOMING);
-        return new Summary(c[0], c[1], c[2], c[3], upcoming.isEmpty() ? null : upcoming.get(0), c[4]);
+        return new Summary(c[0], c[1], c[2], c[3], upcoming.isEmpty() ? null : upcoming.get(0), c[4], c[5], c[6], c[7]);
     }
 }

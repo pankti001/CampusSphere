@@ -226,6 +226,11 @@ fun StudentHomeScreen(vmFactory: () -> StudentHomeViewModel, homeworkCard: @Comp
                     Text("Next: ${it.skill} with ${it.partner.substringBefore(' ')} · " +
                         com.campussphere.app.data.repository.skillSessionTime(it.startsAt, it.endsAt), style = MaterialTheme.typography.bodySmall)
                 }
+                val extras = listOfNotNull(
+                    s.openWants.takeIf { it > 0 }?.let { "🙋 $it classmate post" + (if (it == 1L) "" else "s") + " asking to learn" },
+                    s.groups.takeIf { it > 0 }?.let { "👥 $it learning group" + if (it == 1L) "" else "s" },
+                    s.facultyRequests.takeIf { it > 0 }?.let { "🧑‍🏫 $it faculty request" + if (it == 1L) "" else "s" })
+                if (extras.isNotEmpty()) Text(extras.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                 if (s.unreadNotices > 0) Text("${s.unreadNotices} new notification" + if (s.unreadNotices == 1L) "" else "s",
                     style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
             }

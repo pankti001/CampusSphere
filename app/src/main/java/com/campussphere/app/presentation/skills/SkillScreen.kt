@@ -29,7 +29,7 @@ import com.campussphere.app.ui.brand.IconBadge
 import com.campussphere.app.ui.brand.ScreenSwitch
 import com.campussphere.app.ui.brand.appear
 
-private val SkillTint = Color(0xFFE0F2FE)
+internal val SkillTint = Color(0xFFE0F2FE)
 
 /**
  * Skill Exchange: learn from and teach classmates of the student's own college. The server decides the college
@@ -47,6 +47,8 @@ fun SkillScreen(repo: SkillRepository, chats: ChatRepository, auth: () -> String
 
     ui.ask?.let { AskDialog(it, ui.mine.filter { o -> o.status == "ACTIVE" }, ui.busy, vm::editAsk, vm::sendAsk) { vm.back() } }
     ui.action?.let { SessionActionDialog(it, ui.busy, vm::editAction, vm::finishAction) { vm.back() } }
+    ui.help?.let { HelpDialog(it, ui.busy, vm::editHelp, vm::sendHelp) { vm.back() } }
+    ui.groupCancel?.let { GroupCancelDialog(it, ui.busy, vm::editGroupCancel, vm::finishGroupCancel) { vm.back() } }
 
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -71,6 +73,15 @@ fun SkillScreen(repo: SkillRepository, chats: ChatRepository, auth: () -> String
                     SkillPage.SESSIONS -> sessionsPage(ui, vm)
                     SkillPage.NOTICES -> noticesPage(ui, vm)
                     SkillPage.REVIEWS -> reviewsPage(ui)
+                    SkillPage.WANTS -> wantsPage(ui, vm)
+                    SkillPage.WANT -> ui.want?.let { wantPage(it, ui, vm) }
+                    SkillPage.WANT_FORM -> ui.wantForm?.let { item { WantForm(it, ui.wantFormError, ui.busy, vm::editWantForm, vm::saveWant) } }
+                    SkillPage.GROUPS -> groupsPage(ui, vm)
+                    SkillPage.GROUP -> ui.group?.let { groupPage(it, ui, vm) }
+                    SkillPage.FACULTY -> facultyPage(ui, vm)
+                    SkillPage.FACULTY_FORM -> ui.facultyForm?.let { item { FacultyAskCard(it, ui.facultyChoices, ui.facultyFormError, ui.busy,
+                        vm::editFacultyForm, vm::sendFacultyAsk) } }
+                    SkillPage.FACULTY_REQUEST -> ui.facultyRequest?.let { facultyRequestPage(it, ui, vm) }
                 }
             }
         }
@@ -87,6 +98,14 @@ private fun title(ui: SkillUi) = when (ui.page) {
     SkillPage.SESSIONS -> "Sessions"
     SkillPage.NOTICES -> "Notifications"
     SkillPage.REVIEWS -> "Reviews of ${ui.reviewsOf.substringBefore(' ')}"
+    SkillPage.WANTS -> "Want to learn"
+    SkillPage.WANT -> ui.want?.want?.title ?: "Post"
+    SkillPage.WANT_FORM -> "I want to learn…"
+    SkillPage.GROUPS -> "Learning groups"
+    SkillPage.GROUP -> ui.group?.group?.name ?: "Group"
+    SkillPage.FACULTY -> "Learn from faculty"
+    SkillPage.FACULTY_FORM -> "Ask a faculty member"
+    SkillPage.FACULTY_REQUEST -> ui.facultyRequest?.request?.topic ?: "Request"
 }
 
 @Composable
@@ -104,14 +123,14 @@ private fun Messages(error: String?, notice: String?, dismiss: () -> Unit) {
 }
 
 @Composable
-private fun Chip(text: String, color: Color = MaterialTheme.colorScheme.surfaceVariant) {
+internal fun Chip(text: String, color: Color = MaterialTheme.colorScheme.surfaceVariant) {
     Surface(color = color, shape = MaterialTheme.shapes.small) {
         Text(text, Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelMedium)
     }
 }
 
 @Composable
-private fun statusColor(status: String) = when (status) {
+internal fun statusColor(status: String) = when (status) {
     "ACCEPTED", "SCHEDULED", "COMPLETED", "ACTIVE" -> MaterialTheme.colorScheme.primaryContainer
     "REQUESTED", "PAUSED" -> MaterialTheme.colorScheme.tertiaryContainer
     "REJECTED", "CANCELLED" -> MaterialTheme.colorScheme.errorContainer
@@ -119,7 +138,7 @@ private fun statusColor(status: String) = when (status) {
 }
 
 @Composable
-private fun <K> Choice(label: String, options: List<Pair<K, String>>, value: K?, allLabel: String? = "All", select: (K?) -> Unit) {
+internal fun <K> Choice(label: String, options: List<Pair<K, String>>, value: K?, allLabel: String? = "All", select: (K?) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         OutlinedButton({ open = true }) {
@@ -140,6 +159,9 @@ private fun LazyListScope.market(ui: SkillUi, vm: SkillViewModel) {
             FilledTonalButton(vm::openMine, enabled = !ui.busy) { Text("🎓 My skills") }
             FilledTonalButton({ vm.openRequests() }, enabled = !ui.busy) { Text("📨 Requests") }
             FilledTonalButton({ vm.openSessions(false) }, enabled = !ui.busy) { Text("📅 Sessions") }
+            FilledTonalButton({ vm.openWants(false) }, enabled = !ui.busy) { Text("🙋 Want to learn") }
+            FilledTonalButton(vm::openGroups, enabled = !ui.busy) { Text("👥 Groups") }
+            FilledTonalButton(vm::openFaculty, enabled = !ui.busy) { Text("🧑‍🏫 Faculty") }
         }
     }
     item {
@@ -226,7 +248,7 @@ private fun LazyListScope.offerPage(offer: SkillOffer, ui: SkillUi, vm: SkillVie
 }
 
 @Composable
-private fun Section(heading: String, body: String) {
+internal fun Section(heading: String, body: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(heading, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Text(body, style = MaterialTheme.typography.bodyMedium)
@@ -289,6 +311,7 @@ private fun OfferForm(form: SkillOfferForm, error: String?, busy: Boolean, edit:
             Choice("Level", SKILL_LEVELS, form.level, allLabel = null) { it?.let { l -> edit(form.copy(level = l)) } }
             Choice("Mode", SKILL_OFFER_MODES, form.mode, allLabel = null) { it?.let { m -> edit(form.copy(mode = m)) } }
         }
+        AudienceChoice(form.audience) { edit(form.copy(audience = it)) }
         OutlinedTextField(form.description, { edit(form.copy(description = it.take(1000))) }, Modifier.fillMaxWidth(), minLines = 3,
             label = { Text("What you will teach") })
         OutlinedTextField(form.teachingMethod, { edit(form.copy(teachingMethod = it.take(300))) }, Modifier.fillMaxWidth(), minLines = 2,
@@ -370,8 +393,9 @@ private fun LazyListScope.requestPage(r: SkillRequest, ui: SkillUi, vm: SkillVie
             if (r.message.isNotBlank()) Text("“${r.message}”", style = MaterialTheme.typography.bodyMedium)
             Text("Sent ${chatTime(r.createdAt)} · ${r.completedSessions} completed session" + if (r.completedSessions == 1L) "" else "s",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton({ vm.chatWith(r.partnerId) }, enabled = !ui.busy) { Text("💬 Message ${r.partner.substringBefore(' ')}") }
+                r.groupId?.let { g -> FilledTonalButton({ vm.openGroup(g) }, enabled = !ui.busy) { Text("👥 Learning group") } }
             }
             RequestButtons(r, ui.busy, vm)
         }
@@ -499,7 +523,8 @@ private fun LazyListScope.noticesPage(ui: SkillUi, vm: SkillViewModel) {
             Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 IconBadge(when {
                     n.kind.startsWith("REQUEST") -> "📨"; n.kind == "SESSION_REMINDER" -> "⏰"
-                    n.kind.startsWith("SESSION") -> "📅"; else -> "⭐"
+                    n.kind.startsWith("SESSION") -> "📅"; n.kind.startsWith("WANT") -> "🙋"
+                    n.kind.startsWith("GROUP") -> "👥"; n.kind.startsWith("FACULTY") -> "🧑‍🏫"; else -> "⭐"
                 }, SkillTint)
                 Column(Modifier.weight(1f)) {
                     Text(n.title, fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal)

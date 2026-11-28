@@ -64,9 +64,26 @@ class SkillTest {
             method.parameterAnnotations.flatten().filterIsInstance<Query>().forEach { assertFalse(it.value.contains("college", true)) }
         }
         for (type in listOf(SkillOfferInput::class.java, SkillRequestInput::class.java, SkillSessionInput::class.java,
-                SkillCancelInput::class.java, SkillReviewInput::class.java)) {
+                SkillCancelInput::class.java, SkillReviewInput::class.java, SkillWantInput::class.java, SkillTextInput::class.java,
+                SkillGroupSessionInput::class.java, FacultyAskInput::class.java, FacultyAcceptInput::class.java, FacultyReasonInput::class.java)) {
+            type.declaredFields.forEach { assertFalse("${type.simpleName}.${it.name}", it.name.contains("division", true)) }
             type.declaredFields.forEach { assertFalse("${type.simpleName}.${it.name}", it.name.contains("college", true)) }
         }
+    }
+
+    @Test fun postsAndFacultyRequestsAreCheckedBeforeSending() {
+        assertNull(skillWantProblem(SkillWantForm(title = "Excel formulas")))
+        assertNotNull(skillWantProblem(SkillWantForm(title = "Ex")))
+        assertNotNull(skillWantProblem(SkillWantForm(title = "x".repeat(81))))
+        assertNotNull(skillWantProblem(SkillWantForm(title = "Excel", details = "d".repeat(1001))))
+        assertNull(facultyAskProblem(FacultyAskForm(facultyId = 5, topic = "Trees")))
+        assertEquals("Choose a faculty member.", facultyAskProblem(FacultyAskForm(topic = "Trees")))
+        assertNotNull(facultyAskProblem(FacultyAskForm(facultyId = 5, topic = "ab")))
+        // Sharing defaults to the class; the class itself is never sent, only the choice.
+        assertEquals("CLASS", SkillOfferForm(name = "Java").toInput().audience)
+        assertEquals("COLLEGE", SkillOfferForm(name = "Java", audience = "COLLEGE").toInput().audience)
+        assertEquals("Waiting for reply", facultyStatusLabel("OPEN"))
+        assertEquals("You are not in a class yet, so share with your whole college instead.", skillErrorMessage(409, "SKILL_NO_CLASS"))
     }
 
     @Test fun failuresBecomeFriendlyAndNothingInvalidIsSent() = runBlocking {

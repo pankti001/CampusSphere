@@ -115,6 +115,8 @@ class MainActivity : ComponentActivity() {
             RetrofitClient.streamClient, RetrofitClient.baseUrl)
         val skills = com.campussphere.app.data.repository.SkillRepository(
             RetrofitClient.createService(com.campussphere.app.data.remote.api.SkillApi::class.java))
+        val facultyLearning = com.campussphere.app.data.repository.FacultyLearningRepository(
+            RetrofitClient.createService(com.campussphere.app.data.remote.api.FacultyLearningApi::class.java))
         val homework = com.campussphere.app.data.repository.HomeworkRepository(
             RetrofitClient.createService(com.campussphere.app.data.remote.api.HomeworkApi::class.java))
         val announcements = AnnouncementRepository(RetrofitClient.createService(AnnouncementApi::class.java), materials)
@@ -264,13 +266,16 @@ class MainActivity : ComponentActivity() {
                         var noticeRefresh by rememberSaveable { mutableStateOf(0) }
                         var showHomework by rememberSaveable { mutableStateOf(false) }
                         var homeworkCreate by rememberSaveable { mutableStateOf(false) }
+                        var showLearning by rememberSaveable { mutableStateOf(false) }
                         FacultyNotificationEffects(facultyNotices, auth::facultyAuthorization, noticeRefresh) { unreadNotices = it }
                         val facultyPage = when {
-                            showHomework -> "homework"; showNotifications -> "notifications"; showTimetable -> "timetable"
+                            showLearning -> "learning"; showHomework -> "homework"; showNotifications -> "notifications"; showTimetable -> "timetable"
                             showAnnouncements -> "announcements"; showMaterials -> "materials"; showAttendance -> "attendance"
                             else -> "home"
                         }
                         com.campussphere.app.ui.brand.ScreenSwitch(facultyPage) { page -> when (page) {
+                        "learning" -> com.campussphere.app.presentation.skills.FacultyLearningScreen(facultyLearning, auth::facultyAuthorization,
+                            { if (it == 401) auth.expirePlatformSession() else auth.refresh() }) { showLearning = false }
                         "homework" -> com.campussphere.app.presentation.homework.FacultyHomeworkScreen(homework, auth::facultyAuthorization,
                             { if (it == 401) auth.expirePlatformSession() else auth.refresh() }, homeworkCreate) { showHomework = false; homeworkCreate = false }
                         "notifications" -> FacultyNotificationsScreen(facultyNotices, auth::facultyAuthorization, { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
@@ -288,9 +293,12 @@ class MainActivity : ComponentActivity() {
                             onAnnouncements = { showAnnouncements = true }, onTimetable = { showTimetable = true },
                             onNotifications = { showNotifications = true }, unreadNotifications = unreadNotices,
                             homeworkCard = {
-                                com.campussphere.app.presentation.homework.FacultyHomeworkCard(homework, auth::facultyAuthorization,
-                                    { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
-                                    { homeworkCreate = false; showHomework = true }) { homeworkCreate = true; showHomework = true }
+                                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    com.campussphere.app.presentation.homework.FacultyHomeworkCard(homework, auth::facultyAuthorization,
+                                        { if (it == 401) auth.expirePlatformSession() else auth.refresh() },
+                                        { homeworkCreate = false; showHomework = true }) { homeworkCreate = true; showHomework = true }
+                                    com.campussphere.app.presentation.skills.FacultyLearningCard(facultyLearning, auth::facultyAuthorization) { showLearning = true }
+                                }
                             })
                         } }
                     } else if (state.account?.studentAffiliationEligible == true) {
